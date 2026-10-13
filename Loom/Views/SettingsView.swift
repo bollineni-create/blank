@@ -7,7 +7,7 @@ struct SettingsView: View {
     @Query private var items: [Item]
 
     var body: some View {
-        @Bindable var librarian = librarian
+        @Bindable var bindableLibrarian = librarian
         Form {
             Section {
                 ModelPicker()
@@ -18,7 +18,7 @@ struct SettingsView: View {
             }
 
             Section("Organizing") {
-                Toggle("Auto-organize new items", isOn: $librarian.autoOrganize)
+                Toggle("Auto-organize new items", isOn: $bindableLibrarian.autoOrganize)
                 Button("Organize all unprocessed items") { librarian.organizeAllUnprocessed() }
                     .disabled(!llm.isReady)
                 LabeledContent("Items", value: "\(items.count)")
