@@ -15,18 +15,8 @@ settings:
     CODE_SIGN_STYLE: Automatic
 
 packages:
-  mlx-swift:
-    url: https://github.com/ml-explore/mlx-swift
-    from: "0.32.3"
-  mlx-swift-lm:
-    url: https://github.com/ml-explore/mlx-swift-lm
-    from: "3.32.3"
-  swift-huggingface:
-    url: https://github.com/huggingface/swift-huggingface
-    from: "0.9.0"
-  swift-transformers:
-    url: https://github.com/huggingface/swift-transformers
-    from: "1.3.0"
+  LlamaKit:
+    path: LlamaKit
 
 targetTemplates:
   LoomApp:
@@ -34,18 +24,8 @@ targetTemplates:
     sources:
       - path: Loom
     dependencies:
-      - package: mlx-swift
-        product: MLX
-      - package: mlx-swift-lm
-        product: MLXLLM
-      - package: mlx-swift-lm
-        product: MLXLMCommon
-      - package: mlx-swift-lm
-        product: MLXHuggingFace
-      - package: swift-huggingface
-        product: HuggingFace
-      - package: swift-transformers
-        product: Tokenizers
+      - package: LlamaKit
+        product: LlamaKit
     settings:
       base:
         PRODUCT_NAME: Loom

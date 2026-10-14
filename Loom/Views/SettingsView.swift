@@ -14,7 +14,7 @@ struct SettingsView: View {
             } header: {
                 Text("AI Model")
             } footer: {
-                Text("Models are downloaded once from Hugging Face and then run entirely on this device with Apple MLX. Your library never leaves the device.")
+                Text("Models are downloaded once from Hugging Face and then run entirely on this device with llama.cpp. Your library never leaves the device.")
             }
 
             Section("Organizing") {
