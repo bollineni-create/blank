@@ -60,9 +60,7 @@ struct AskView: View {
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
-        .navigationDestination(for: UUID.self) { id in
-            if let item = items.first(where: { $0.id == id }) { ItemDetailView(item: item) }
-        }
+        // Source chips push a UUID; the panel's NavigationStack in RootView declares that destination.
         .navigationDestination(item: $openedSource) { id in
             if let item = items.first(where: { $0.id == id }) { ItemDetailView(item: item) }
         }
