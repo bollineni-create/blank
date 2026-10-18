@@ -5,6 +5,8 @@ import AVKit
 
 struct ItemDetailView: View {
     @Bindable var item: Item
+    /// Called after deleting, when shown in a panel rather than pushed.
+    var onDelete: (() -> Void)? = nil
     @Environment(Librarian.self) private var librarian
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
@@ -127,7 +129,7 @@ struct ItemDetailView: View {
         .onDisappear { librarian.itemEdited(item) }
         .confirmationDialog("Delete this item?", isPresented: $confirmDelete) {
             Button("Delete", role: .destructive) {
-                dismiss()
+                if let onDelete { onDelete() } else { dismiss() }
                 librarian.delete(item)
             }
         }

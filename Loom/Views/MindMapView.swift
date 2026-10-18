@@ -169,6 +169,13 @@ enum MindMapLayout {
 
 /// The home screen: your whole library as a zoomable, draggable mind map.
 struct MindMapView: View {
+    /// The item open in the side panel.
+    @Binding var selection: UUID?
+    /// Search text from the main page; matching nodes stay bright, the rest dim.
+    var highlight: String
+    /// Set to an item's ID to fly the camera to it.
+    @Binding var focusRequest: UUID?
+
     @Environment(Librarian.self) private var librarian
     @Query(sort: \Item.createdAt, order: .reverse) private var items: [Item]
     @Query(sort: \Space.createdAt) private var spaces: [Space]
@@ -189,7 +196,6 @@ struct MindMapView: View {
 
     @State private var noteSheet: MapGroup?
     @State private var showingNewNote = false
-    @State private var highlight = ""
 
     var body: some View {
         let groups = MindMapLayout.groups(for: items, spaces: spaces, grouping: grouping)
@@ -287,30 +293,11 @@ struct MindMapView: View {
             }
         }
         .background(.background)
-        .navigationTitle("Mind Map")
-        .navigationDestination(for: UUID.self) { id in
-            if let item = items.first(where: { $0.id == id }) { ItemDetailView(item: item) }
-        }
-        .searchable(text: $highlight, prompt: "Highlight on the map")
-        .toolbar {
-            ToolbarItem(placement: .principal) {
-                Picker("Group by", selection: $grouping) {
-                    ForEach(MapGrouping.allCases) { Text($0.label).tag($0) }
-                }
-                .pickerStyle(.segmented)
-                .fixedSize()
-            }
-            ToolbarItem(placement: .primaryAction) {
-                Menu {
-                    Button { showingNewNote = true } label: { Label("New Note", systemImage: "square.and.pencil") }
-                    Divider()
-                    Button("Expand All") { withAnimation(.spring) { expanded = Set(groups.map(\.id)) } }
-                    Button("Collapse All") { withAnimation(.spring) { expanded = [] } }
-                    Button("Reset Layout") { withAnimation(.spring) { offsets = [:]; saveOffsets() } }
-                } label: {
-                    Label("Map", systemImage: "ellipsis.circle")
-                }
-            }
+        .overlay(alignment: .topLeading) { mapControls(groups: groups) }
+        .onChange(of: focusRequest) { _, id in
+            guard let id else { return }
+            focus(on: id)
+            focusRequest = nil
         }
         .sheet(isPresented: $showingNewNote) { NoteEditorSheet() }
         .sheet(item: $noteSheet) { group in
@@ -397,7 +384,7 @@ struct MindMapView: View {
             }
 
         case .item(let item):
-            NavigationLink(value: item.id) {
+            Button { selection = item.id } label: {
                 if compact {
                     // Zoomed far out: show a dot so the shape of the map stays readable.
                     Circle()
@@ -406,7 +393,7 @@ struct MindMapView: View {
                         .overlay(Image(systemName: item.kind.symbol).font(.system(size: 11, weight: .bold)).foregroundStyle(.white))
                         .shadow(color: .black.opacity(0.15), radius: 2, y: 1)
                 } else {
-                    MapItemCard(item: item, color: MindMapLayout.color(node.colorIndex))
+                    MapItemCard(item: item, color: MindMapLayout.color(node.colorIndex), isSelected: selection == item.id)
                 }
             }
             .buttonStyle(.plain)
@@ -416,6 +403,50 @@ struct MindMapView: View {
                 Divider()
                 Button("Delete", role: .destructive) { librarian.delete(item) }
             }
+        }
+    }
+
+    /// Grouping switch and map actions, floating under the main page's search bar.
+    private func mapControls(groups: [MapGroup]) -> some View {
+        HStack(spacing: 8) {
+            Picker("Group by", selection: $grouping) {
+                ForEach(MapGrouping.allCases) { Text($0.label).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .fixedSize()
+            Menu {
+                Button("Expand All") { withAnimation(.spring) { expanded = Set(groups.map(\.id)) } }
+                Button("Collapse All") { withAnimation(.spring) { expanded = [] } }
+                Button("Fit to Screen") { withAnimation(.spring) { fit(groups: groups) } }
+                Divider()
+                Button("Reset Layout") { withAnimation(.spring) { offsets = [:]; saveOffsets() } }
+            } label: {
+                Image(systemName: "ellipsis").font(.body.weight(.bold)).frame(width: 30, height: 26)
+            }
+            .menuStyle(.button)
+            .buttonStyle(.plain)
+            .menuIndicator(.hidden)
+            .fixedSize()
+        }
+        .padding(6)
+        .background(.regularMaterial, in: Capsule())
+        .padding(.leading, 16)
+        .padding(.top, 74)
+    }
+
+    /// Opens the item's branch and centers the camera on it.
+    private func focus(on id: UUID) {
+        let groups = MindMapLayout.groups(for: items, spaces: spaces, grouping: grouping)
+        if let group = groups.first(where: { $0.items.contains { $0.id == id } }) {
+            expanded.insert(group.id)
+        }
+        let layout = MindMapLayout.build(groups: groups, expanded: expanded, grouping: grouping)
+        guard let p = resolvedPositions(layout.nodes)["item:\(id)"] else { return }
+        let s = max(scale, 0.9)
+        withAnimation(.spring(duration: 0.5)) {
+            scale = s
+            pan = CGSize(width: -p.x * s, height: -p.y * s)
         }
     }
 
@@ -569,6 +600,7 @@ struct MindMapView: View {
 struct MapItemCard: View {
     let item: Item
     let color: Color
+    var isSelected = false
     @State private var hovering = false
 
     var body: some View {
@@ -624,9 +656,10 @@ struct MapItemCard: View {
                 .frame(height: 4)
         }
         .clipShape(RoundedRectangle(cornerRadius: 14))
-        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(color.opacity(hovering ? 0.9 : 0.3), lineWidth: hovering ? 2 : 1))
+        .overlay(RoundedRectangle(cornerRadius: 14)
+            .strokeBorder(color.opacity(isSelected || hovering ? 0.95 : 0.3), lineWidth: isSelected ? 3 : (hovering ? 2 : 1)))
         .shadow(color: .black.opacity(hovering ? 0.18 : 0.09), radius: hovering ? 10 : 5, y: hovering ? 5 : 2)
-        .scaleEffect(hovering ? 1.04 : 1)
+        .scaleEffect(isSelected ? 1.08 : (hovering ? 1.04 : 1))
         .animation(.spring(duration: 0.25), value: hovering)
         .onHover { hovering = $0 }
     }

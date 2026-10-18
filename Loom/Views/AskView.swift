@@ -3,6 +3,8 @@ import SwiftData
 
 /// Chat with your library. Answers come from the on-device model, grounded in your saved items.
 struct AskView: View {
+    /// A question typed into the main page's ask bar, sent as soon as the panel opens.
+    @Binding var pendingQuestion: String?
     @Environment(LLMService.self) private var llm
     @Environment(\.modelContext) private var context
     @Query(sort: \Item.createdAt, order: .reverse) private var items: [Item]
@@ -66,6 +68,15 @@ struct AskView: View {
             }
         }
         .onDisappear { task?.cancel() }
+        .onAppear(perform: sendPending)
+        .onChange(of: pendingQuestion) { _, _ in sendPending() }
+    }
+
+    private func sendPending() {
+        guard let q = pendingQuestion, streaming == nil else { return }
+        pendingQuestion = nil
+        input = q
+        send()
     }
 
     private var messages: [ChatMessage] { conversation?.sortedMessages ?? [] }

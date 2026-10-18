@@ -70,4 +70,5 @@ struct LoomApp: App {
 extension Notification.Name {
     static let loomNewNote = Notification.Name("loomNewNote")
     static let loomNewLink = Notification.Name("loomNewLink")
+    static let loomPaste = Notification.Name("loomPaste")
 }
