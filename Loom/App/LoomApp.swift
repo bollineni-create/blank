@@ -1,17 +1,22 @@
 import SwiftUI
 import SwiftData
 
-@main
-struct LoomApp: App {
-    @State private var llm: LLMService
-    @State private var librarian: Librarian
-    let container: ModelContainer
+/// The library, the model and the librarian, shared by the app's windows and its App Intents
+/// (Siri and Shortcuts can run before any window exists).
+@MainActor
+final class LoomServices {
+    static let shared = LoomServices()
 
-    init() {
+    let container: ModelContainer
+    let llm: LLMService
+    let librarian: Librarian
+    /// Requests from App Intents that the main page acts on.
+    let router = LoomRouter()
+
+    private init() {
         LLMService.configureEnvironment()
-        let llm = LLMService()
-        _llm = State(initialValue: llm)
-        _librarian = State(initialValue: Librarian(llm: llm))
+        llm = LLMService()
+        librarian = Librarian(llm: llm)
         do {
             container = try ModelContainer(for: Item.self, Space.self, Conversation.self, ChatMessage.self)
         } catch {
@@ -19,14 +24,61 @@ struct LoomApp: App {
         }
     }
 
+    /// Connects the librarian to the database and loads the model. Safe to call more than once.
+    func start() {
+        guard librarian.context == nil else { return }
+        let context = container.mainContext
+        librarian.context = context
+        // Anything interrupted mid-processing last time goes back in the queue.
+        let processing = AIStatus.processing.rawValue
+        if let stuck = try? context.fetch(FetchDescriptor<Item>(predicate: #Predicate { $0.aiStatusRaw == processing })) {
+            for item in stuck { item.aiStatus = .pending }
+            try? context.save()
+        }
+        librarian.upgradeOldSummaries()
+        llm.refreshAppleAvailability()
+        if !llm.usesAppleModel { llm.loadSelectedIfDownloaded() }
+        librarian.runQueue()
+    }
+}
+
+/// What App Intents ask the main page to show.
+@MainActor
+@Observable
+final class LoomRouter {
+    var openItem: UUID?
+    var newNote = false
+}
+
+@main
+struct LoomApp: App {
+    @State private var llm: LLMService
+    @State private var librarian: Librarian
+    @State private var router: LoomRouter
+    @Environment(\.scenePhase) private var scenePhase
+    let container: ModelContainer
+
+    init() {
+        let services = LoomServices.shared
+        _llm = State(initialValue: services.llm)
+        _librarian = State(initialValue: services.librarian)
+        _router = State(initialValue: services.router)
+        container = services.container
+        LoomShortcuts.updateAppShortcutParameters()
+    }
+
     var body: some Scene {
         WindowGroup {
             RootView()
                 .environment(llm)
                 .environment(librarian)
-                .onAppear(perform: start)
-                .onChange(of: llm.state) { _, state in
-                    if state == .ready { librarian.modelBecameReady() }
+                .environment(router)
+                .onAppear { LoomServices.shared.start() }
+                .onChange(of: llm.isReady) { _, ready in
+                    if ready { librarian.modelBecameReady() }
+                }
+                .onChange(of: scenePhase) { _, phase in
+                    if phase == .active { llm.refreshAppleAvailability() }
                 }
         }
         .modelContainer(container)
@@ -52,24 +104,11 @@ struct LoomApp: App {
         }
         #endif
     }
-
-    private func start() {
-        guard librarian.context == nil else { return }
-        let context = container.mainContext
-        librarian.context = context
-        // Anything interrupted mid-processing last time goes back in the queue.
-        let processing = AIStatus.processing.rawValue
-        if let stuck = try? context.fetch(FetchDescriptor<Item>(predicate: #Predicate { $0.aiStatusRaw == processing })) {
-            for item in stuck { item.aiStatus = .pending }
-            try? context.save()
-        }
-        librarian.upgradeOldSummaries()
-        llm.loadSelectedIfDownloaded()
-    }
 }
 
 extension Notification.Name {
     static let loomNewNote = Notification.Name("loomNewNote")
     static let loomNewLink = Notification.Name("loomNewLink")
     static let loomPaste = Notification.Name("loomPaste")
+    static let loomOpenSettings = Notification.Name("loomOpenSettings")
 }

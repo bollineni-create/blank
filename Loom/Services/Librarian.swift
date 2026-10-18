@@ -346,14 +346,24 @@ final class Librarian {
         \(existing.isEmpty ? "" : "Prefer reusing these existing tags when they fit: \(existing)")
         """
         do {
-            let reply = try await llm.generate(
-                system: "You are a precise librarian. You only ever reply with valid JSON.",
-                prompt: prompt, maxTokens: 550, temperature: 0.2)
-            guard let parsed = Self.parseJSON(reply) else {
-                item.aiStatus = .failed
-                setStage(item, .failed("Couldn't summarize; try Regenerate"), create: false)
-                try? context?.save()
-                return
+            let parsed: Organized
+            if llm.usesAppleModel {
+                // Guided generation fills fixed fields, so there's no JSON to parse.
+                let fields = try await llm.organizeWithAppleModel(
+                    Self.applePrompt(kind: item.kind, text: text, existingTags: existing),
+                    instructions: "You are a precise librarian for a private personal knowledge library.")
+                parsed = Organized(title: fields.title, summary: fields.summary, takeaways: fields.takeaways, tags: fields.tags)
+            } else {
+                let reply = try await llm.generate(
+                    system: "You are a precise librarian. You only ever reply with valid JSON.",
+                    prompt: prompt, maxTokens: 550, temperature: 0.2)
+                guard let json = Self.parseJSON(reply) else {
+                    item.aiStatus = .failed
+                    setStage(item, .failed("Couldn't summarize; try Regenerate"), create: false)
+                    try? context?.save()
+                    return
+                }
+                parsed = json
             }
             // Keep titles the user (or the web page) gave, except bare hostnames and empty ones.
             if let title = parsed.title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty,
@@ -384,13 +394,18 @@ final class Librarian {
         try? context?.save()
     }
 
-    /// Roughly how much text we feed the model per item; smaller on iPhone.
-    private var llmInputBudget: Int {
-        #if os(macOS)
-        6000
-        #else
-        3000
-        #endif
+    /// Roughly how much text we feed the model per item; smaller on iPhone and for Apple's model.
+    private var llmInputBudget: Int { llm.inputBudgetCharacters }
+
+    private static func applePrompt(kind: ItemKind, text: String, existingTags: String) -> String {
+        """
+        Read this saved \(kind.rawValue) and capture what is worth remembering from it.
+        If the content is too thin to learn from, keep takeaways to what it actually says.
+        \(existingTags.isEmpty ? "" : "Prefer reusing these existing tags when they fit: \(existingTags)")
+
+        CONTENT:
+        \(text)
+        """
     }
 
     private static func parseJSON(_ reply: String) -> Organized? {

@@ -22,24 +22,26 @@ struct ItemDetailView: View {
         Form {
             Section {
                 TextField("Title", text: $item.title, axis: .vertical)
-                    .font(.title2.bold())
+                    .font(.loomTitle)
+                    .serifTracking()
+                    .foregroundStyle(Theme.label)
                     .onSubmit { librarian.itemEdited(item) }
                 if let url = item.url {
                     Button { openURL(url) } label: {
-                        Label(url.absoluteString, systemImage: "safari").lineLimit(1)
+                        Label(url.absoluteString, systemImage: "safari").lineLimit(1).foregroundStyle(Theme.accentInk)
                     }
                 }
                 if item.kind == .video, let fileURL = item.attachmentURL {
                     VideoPlayer(player: player)
                         .frame(height: 320)
-                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.panel))
                         .onAppear { if player == nil { player = AVPlayer(url: fileURL) } }
                         .onDisappear { player?.pause() }
                 } else if let data = item.thumbnail, let image = PlatformImage(data: data) {
                     Image(platformImage: image)
                         .resizable().scaledToFit()
                         .frame(maxHeight: 320)
-                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.panel))
                         .onTapGesture { previewURL = item.attachmentURL }
                 }
                 if let fileURL = item.attachmentURL, item.kind != .image, item.kind != .video {
@@ -49,21 +51,23 @@ struct ItemDetailView: View {
 
             Section {
                 if item.summary.isEmpty && item.takeaways.isEmpty {
-                    Text(statusText).foregroundStyle(.secondary)
+                    Text(statusText).foregroundStyle(Theme.labelSecondary)
                 } else {
                     if !item.summary.isEmpty {
                         Text(item.summary)
-                            .font(.body.weight(.medium))
+                            .font(.body)
+                            .lineSpacing(4)
+                            .foregroundStyle(Theme.label)
                             .textSelection(.enabled)
                     }
                     if !item.takeaways.isEmpty {
                         VStack(alignment: .leading, spacing: 10) {
                             ForEach(Array(item.takeaways.enumerated()), id: \.offset) { _, lesson in
                                 HStack(alignment: .firstTextBaseline, spacing: 10) {
-                                    Image(systemName: "lightbulb.fill")
+                                    Image(systemName: "sparkles")
                                         .font(.caption)
-                                        .foregroundStyle(.yellow)
-                                    Text(lesson).textSelection(.enabled)
+                                        .foregroundStyle(Theme.accentInk)
+                                    Text(lesson).foregroundStyle(Theme.label).textSelection(.enabled)
                                 }
                             }
                         }
@@ -75,7 +79,11 @@ struct ItemDetailView: View {
                 }
                 .disabled(item.aiStatus == .processing)
             } header: {
-                Label("What to take away", systemImage: "sparkles")
+                Label {
+                    Text("What to take away")
+                } icon: {
+                    Image(systemName: "sparkles").foregroundStyle(Theme.accentInk)
+                }
             }
 
             Section(item.kind == .note ? "Note" : "Your notes") {
@@ -96,8 +104,9 @@ struct ItemDetailView: View {
                                 .buttonStyle(.plain)
                             }
                             .font(.callout)
-                            .padding(.horizontal, 8).padding(.vertical, 4)
-                            .background(Color.accentColor.opacity(0.15), in: Capsule())
+                            .foregroundStyle(Theme.label)
+                            .padding(.horizontal, Theme.Space.s8).padding(.vertical, Theme.Space.s4)
+                            .background(Theme.accentTint, in: Capsule())
                         }
                     }
                 }
@@ -133,6 +142,9 @@ struct ItemDetailView: View {
             }
         }
         .formStyle(.grouped)
+        .scrollContentBackground(.hidden)
+        .background(Theme.background)
+        .tint(Theme.accent)
         .navigationTitle(item.kind.label.dropLast().description)
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
