@@ -419,6 +419,7 @@ struct KnowledgeWebView: View {
         let query = highlight.trimmingCharacters(in: .whitespaces).lowercased()
         let matches = query.isEmpty ? nil : matchingNodes(query: query, byID: byID)
         let showFileNames = alwaysShowNames || scale > 1.1
+        let busy = librarian.busyItemIDs
 
         return Canvas { ctx, size in
             ctx.translateBy(x: size.width / 2 + pan.width, y: size.height / 2 + pan.height)
@@ -485,6 +486,11 @@ struct KnowledgeWebView: View {
                     }
                     if selected {
                         ctx.stroke(Path(ellipseIn: rect.insetBy(dx: -r * 0.7, dy: -r * 0.7)), with: .color(c), lineWidth: 2.5 / scale)
+                    }
+                    if busy.contains(id) {
+                        // Still being copied, read or summarized.
+                        ctx.stroke(Path(ellipseIn: rect.insetBy(dx: -r * 1.1, dy: -r * 1.1)), with: .color(Color.accentColor),
+                                   style: StrokeStyle(lineWidth: 2 / scale, dash: [4 / scale, 3 / scale]))
                     }
                 }
                 ctx.opacity = 1
@@ -609,6 +615,7 @@ struct KnowledgeWebView: View {
     }
 
     private func focus(on id: String) {
+        if sim.position(of: id) == nil { sim.rebuild(items: items, spaces: spaces, linkSimilar: linkSimilar) }
         guard let p = sim.position(of: id) else { return }
         let s = max(scale, 1.2)
         withAnimation(.spring(duration: 0.5)) {

@@ -36,13 +36,32 @@ struct RootView: View {
             }
             .padding(16)
         }
+        .overlay(alignment: .topTrailing) {
+            UploadsTray { id in
+                selectedItem = id
+                focusRequest = id
+            }
+            .padding(.top, 70)
+            .padding(.trailing, 16)
+        }
         .overlay {
             if isDropTargeted {
-                RoundedRectangle(cornerRadius: 24)
-                    .strokeBorder(Color.accentColor, style: StrokeStyle(lineWidth: 3, dash: [10]))
-                    .padding(10)
-                    .allowsHitTesting(false)
+                ZStack {
+                    RoundedRectangle(cornerRadius: 24)
+                        .fill(Color.accentColor.opacity(0.08))
+                    RoundedRectangle(cornerRadius: 24)
+                        .strokeBorder(Color.accentColor, style: StrokeStyle(lineWidth: 3, dash: [10]))
+                    Label("Drop to add to your brain", systemImage: "tray.and.arrow.down.fill")
+                        .font(.title3.bold())
+                        .padding(.horizontal, 20).padding(.vertical, 12)
+                        .background(.regularMaterial, in: Capsule())
+                }
+                .padding(10)
+                .allowsHitTesting(false)
             }
+        }
+        .onChange(of: librarian.lastAddedID) { _, id in
+            if let id { focusRequest = id }
         }
         .onDrop(of: [.fileURL, .url, .movie, .image, .plainText], isTargeted: $isDropTargeted) { providers in
             DropImporter.importProviders(providers, into: librarian)
@@ -250,5 +269,99 @@ struct ModelStatusChip: View {
         .padding(.horizontal, 12)
         .frame(height: 42)
         .background(.regularMaterial, in: Capsule())
+    }
+}
+
+/// Live list of what's being added: copying, reading, transcribing, summarizing.
+struct UploadsTray: View {
+    @Environment(Librarian.self) private var librarian
+    @Environment(LLMService.self) private var llm
+    var onOpen: (UUID) -> Void
+    @State private var collapsed = false
+
+    var body: some View {
+        let activities = librarian.activities
+        let working = activities.filter { !$0.stage.isFinished }.count
+        if !activities.isEmpty {
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(spacing: 8) {
+                    if working > 0 {
+                        ProgressView().controlSize(.small)
+                        Text("Adding \(working) \(working == 1 ? "item" : "items")…").font(.subheadline.weight(.semibold))
+                    } else {
+                        Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+                        Text("Uploads").font(.subheadline.weight(.semibold))
+                    }
+                    Spacer()
+                    Button { withAnimation(.snappy) { collapsed.toggle() } } label: {
+                        Image(systemName: collapsed ? "chevron.down" : "chevron.up").font(.caption.weight(.bold))
+                    }
+                    .buttonStyle(.plain)
+                    if working == 0 {
+                        Button { withAnimation { librarian.clearFinishedActivities() } } label: {
+                            Image(systemName: "xmark").font(.caption.weight(.bold))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(12)
+
+                if !collapsed {
+                    Divider()
+                    ForEach(activities.prefix(6)) { activity in
+                        Button { onOpen(activity.id) } label: { row(activity) }
+                            .buttonStyle(.plain)
+                    }
+                    if activities.count > 6 {
+                        Text("+ \(activities.count - 6) more").font(.caption).foregroundStyle(.secondary)
+                            .padding(.horizontal, 12).padding(.vertical, 8)
+                    }
+                    if librarian.processingCount > working {
+                        Text("Updating \(librarian.processingCount - working) older items in the background")
+                            .font(.caption).foregroundStyle(.secondary)
+                            .padding(.horizontal, 12).padding(.bottom, 10)
+                    }
+                }
+            }
+            .frame(width: 310)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+            .shadow(color: .black.opacity(0.12), radius: 12, y: 5)
+            .transition(.move(edge: .trailing).combined(with: .opacity))
+            .animation(.snappy, value: activities)
+        }
+    }
+
+    private func row(_ activity: Librarian.Activity) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: activity.symbol)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 28, height: 28)
+                .background(Color.accentColor.gradient, in: RoundedRectangle(cornerRadius: 7))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(activity.title).font(.callout.weight(.medium)).lineLimit(1)
+                Text(activity.stage.label)
+                    .font(.caption)
+                    .foregroundStyle(stageColor(activity.stage))
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 0)
+            switch activity.stage {
+            case .done: Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+            case .failed: Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+            case .waitingForModel: Image(systemName: "pause.circle.fill").foregroundStyle(.secondary)
+            default: ProgressView().controlSize(.small)
+            }
+        }
+        .padding(.horizontal, 12).padding(.vertical, 8)
+        .contentShape(Rectangle())
+    }
+
+    private func stageColor(_ stage: Librarian.Stage) -> Color {
+        switch stage {
+        case .failed: .orange
+        case .done: .green
+        default: .secondary
+        }
     }
 }

@@ -48,10 +48,10 @@ struct CaptureButton: View {
                 for p in picked {
                     if p.supportedContentTypes.contains(where: { $0.conforms(to: .movie) }) {
                         // Videos come in as a temporary file; the library keeps its own copy.
-                        if let movie = try? await p.loadTransferable(type: PickedMovie.self) {
-                            librarian.addFile(movie.url)
-                            try? FileManager.default.removeItem(at: movie.url)
-                        }
+                        let placeholder = librarian.startPlaceholder("Video from Photos", symbol: "video")
+                        let movie = try? await p.loadTransferable(type: PickedMovie.self)
+                        librarian.endPlaceholder(placeholder)
+                        if let movie { librarian.addFile(movie.url, removeSourceWhenDone: true) }
                     } else if let data = try? await p.loadTransferable(type: Data.self) {
                         librarian.addImage(data)
                     }
@@ -130,8 +130,7 @@ enum DropImporter {
                     let local = url.isFileURL ? copyToTemporary(url) : nil
                     Task { @MainActor in
                         if let local {
-                            librarian.addFile(local)
-                            try? FileManager.default.removeItem(at: local)
+                            librarian.addFile(local, removeSourceWhenDone: true)
                         } else if !url.isFileURL {
                             librarian.addLink(url)
                         }
@@ -140,10 +139,7 @@ enum DropImporter {
             } else if provider.hasItemConformingToTypeIdentifier(UTType.movie.identifier) {
                 provider.loadFileRepresentation(forTypeIdentifier: UTType.movie.identifier) { url, _ in
                     guard let url, let local = copyToTemporary(url) else { return }
-                    Task { @MainActor in
-                        librarian.addFile(local)
-                        try? FileManager.default.removeItem(at: local)
-                    }
+                    Task { @MainActor in librarian.addFile(local, removeSourceWhenDone: true) }
                 }
             } else if provider.hasItemConformingToTypeIdentifier(UTType.image.identifier) {
                 provider.loadDataRepresentation(forTypeIdentifier: UTType.image.identifier) { data, _ in

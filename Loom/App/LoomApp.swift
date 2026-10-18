@@ -26,7 +26,7 @@ struct LoomApp: App {
                 .environment(librarian)
                 .onAppear(perform: start)
                 .onChange(of: llm.state) { _, state in
-                    if state == .ready { librarian.runQueue() }
+                    if state == .ready { librarian.modelBecameReady() }
                 }
         }
         .modelContainer(container)

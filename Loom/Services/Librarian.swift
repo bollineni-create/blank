@@ -21,6 +21,102 @@ final class Librarian {
     private(set) var processingCount = 0
     private var queueRunning = false
 
+    // MARK: Upload activity (what the uploads tray shows)
+
+    enum Stage: Equatable {
+        case copying
+        case reading(String)
+        case waitingForModel
+        case queued
+        case summarizing
+        case done
+        case failed(String)
+
+        var label: String {
+            switch self {
+            case .copying: "Copying into your library…"
+            case .reading(let what): what
+            case .waitingForModel: "Waiting for an AI model (Settings)"
+            case .queued: "Queued for summary…"
+            case .summarizing: "Summarizing lessons…"
+            case .done: "Added"
+            case .failed(let why): why
+            }
+        }
+
+        /// Done or failed: the tray entry fades out on its own.
+        var isTerminal: Bool {
+            if case .failed = self { return true }
+            return self == .done
+        }
+
+        var isFinished: Bool {
+            switch self {
+            case .done, .failed, .waitingForModel: true
+            default: false
+            }
+        }
+    }
+
+    struct Activity: Identifiable, Equatable {
+        let id: UUID
+        var title: String
+        var symbol: String
+        var stage: Stage
+    }
+
+    /// Newest first. Finished entries fade out after a few seconds.
+    private(set) var activities: [Activity] = []
+    /// The most recently added item, so the main page can fly to it.
+    private(set) var lastAddedID: UUID?
+
+    /// IDs of items still being copied, read or summarized.
+    var busyItemIDs: Set<UUID> {
+        Set(activities.filter { !$0.stage.isFinished }.map(\.id))
+    }
+
+    private func setStage(_ item: Item, _ stage: Stage, create: Bool = true) {
+        setStage(id: item.id, title: item.displayTitle, symbol: item.kind.symbol, stage, create: create)
+    }
+
+    private func setStage(id: UUID, title: String, symbol: String, _ stage: Stage, create: Bool = true) {
+        if let i = activities.firstIndex(where: { $0.id == id }) {
+            activities[i].stage = stage
+            activities[i].title = title
+        } else if create {
+            activities.insert(Activity(id: id, title: title, symbol: symbol, stage: stage), at: 0)
+        } else {
+            return
+        }
+        if stage.isTerminal {
+            Task {
+                try? await Task.sleep(for: .seconds(6))
+                activities.removeAll { $0.id == id && $0.stage == stage }
+            }
+        }
+    }
+
+    /// For slow work that happens before an item exists (e.g. pulling a video out of Photos).
+    func startPlaceholder(_ title: String, symbol: String) -> UUID {
+        let id = UUID()
+        setStage(id: id, title: title, symbol: symbol, .copying)
+        return id
+    }
+
+    func endPlaceholder(_ id: UUID) {
+        activities.removeAll { $0.id == id }
+    }
+
+    func clearFinishedActivities() {
+        activities.removeAll { $0.stage.isFinished }
+    }
+
+    /// When a model finishes loading, items that were waiting move on.
+    func modelBecameReady() {
+        for i in activities.indices where activities[i].stage == .waitingForModel { activities[i].stage = .queued }
+        runQueue()
+    }
+
     init(llm: LLMService) {
         self.llm = llm
     }
@@ -49,6 +145,7 @@ final class Librarian {
         let item = Item(kind: .link, title: url.host() ?? url.absoluteString, body: comment, urlString: url.absoluteString, space: space)
         item.aiStatus = .processing
         insert(item, organize: false)
+        setStage(item, .reading("Fetching the page…"))
         Task {
             do {
                 let content = try await ContentExtractor.fetchLink(url)
@@ -69,6 +166,7 @@ final class Librarian {
         let item = Item(kind: .image, attachmentName: name, thumbnail: ContentExtractor.thumbnail(from: data), space: space)
         item.aiStatus = .processing
         insert(item, organize: false)
+        setStage(item, .reading("Reading text in the image…"))
         Task {
             item.extractedText = await ContentExtractor.recognizeText(in: data)
             item.aiStatus = .pending
@@ -76,29 +174,50 @@ final class Librarian {
         }
     }
 
-    func addFile(_ url: URL, space: Space? = nil) {
-        guard let name = try? AttachmentStore.importFile(at: url) else { return }
-        let stored = AttachmentStore.url(for: name)
+    /// Adds any file. It appears right away; copying and reading happen in the background.
+    /// Pass `removeSourceWhenDone` for temporary copies (drops, Photos) so they're cleaned up after.
+    func addFile(_ url: URL, space: Space? = nil, removeSourceWhenDone: Bool = false) {
         let type = UTType(filenameExtension: url.pathExtension) ?? .data
         let kind: ItemKind = type.conforms(to: .pdf) ? .pdf
             : type.conforms(to: .image) ? .image
             : type.conforms(to: .movie) ? .video
             : .file
         let title = url.deletingPathExtension().lastPathComponent
-        let thumb: Data? = kind == .pdf ? ContentExtractor.pdfThumbnail(stored)
-            : (kind == .image ? (try? Data(contentsOf: stored)).flatMap { ContentExtractor.thumbnail(from: $0) } : nil)
-        let item = Item(kind: kind, title: kind == .image ? "" : title, attachmentName: name, thumbnail: thumb, space: space)
+        let item = Item(kind: kind, title: kind == .image ? "" : title, space: space)
         item.aiStatus = .processing
         insert(item, organize: false)
+        setStage(id: item.id, title: url.lastPathComponent, symbol: kind.symbol, .copying)
+
         Task {
-            if kind == .video {
+            let name = await Task.detached(priority: .userInitiated) { try? AttachmentStore.importFile(at: url) }.value
+            if removeSourceWhenDone { try? FileManager.default.removeItem(at: url) }
+            guard let name else {
+                item.aiStatus = .failed
+                setStage(item, .failed("Couldn't copy \(url.lastPathComponent)"))
+                try? context?.save()
+                return
+            }
+            item.attachmentName = name
+            let stored = AttachmentStore.url(for: name)
+            switch kind {
+            case .pdf:
+                item.thumbnail = ContentExtractor.pdfThumbnail(stored)
+                setStage(item, .reading("Reading the PDF…"))
+                item.extractedText = await ContentExtractor.text(fromFile: stored)
+            case .image:
+                item.thumbnail = (try? Data(contentsOf: stored)).flatMap { ContentExtractor.thumbnail(from: $0) }
+                setStage(item, .reading("Reading text in the image…"))
+                item.extractedText = await ContentExtractor.text(fromFile: stored)
+            case .video:
+                setStage(item, .reading("Transcribing the video…"))
                 let info = await ContentExtractor.videoInfo(stored)
                 item.thumbnail = info.thumbnail
                 let length = ContentExtractor.formatDuration(info.duration)
                 let transcript = await ContentExtractor.transcribe(stored)
                 item.extractedText = "Video \(title)" + (length.isEmpty ? "" : ", \(length) long")
                     + (transcript.isEmpty ? "" : "\n\nTranscript:\n" + transcript)
-            } else {
+            default:
+                setStage(item, .reading("Reading the file…"))
                 item.extractedText = await ContentExtractor.text(fromFile: stored)
             }
             item.aiStatus = .pending
@@ -121,6 +240,7 @@ final class Librarian {
 
     func reorganize(_ item: Item) {
         item.aiStatus = .pending
+        setStage(item, llm.isReady ? .queued : .waitingForModel)
         try? context?.save()
         runQueue()
     }
@@ -156,12 +276,18 @@ final class Librarian {
     private func insert(_ item: Item, organize: Bool = true) {
         context?.insert(item)
         try? context?.save()
+        lastAddedID = item.id
         if organize { finishAdding(item) }
     }
 
     private func finishAdding(_ item: Item) {
         item.embedding = SearchIndex.pack(SearchIndex.embed(item.fullText))
-        if !autoOrganize { item.aiStatus = .skipped }
+        if !autoOrganize {
+            item.aiStatus = .skipped
+            setStage(item, .done)
+        } else {
+            setStage(item, llm.isReady ? .queued : .waitingForModel)
+        }
         try? context?.save()
         runQueue()
     }
@@ -198,9 +324,11 @@ final class Librarian {
 
     private func organize(_ item: Item) async {
         item.aiStatus = .processing
+        setStage(item, .summarizing, create: false)
         let text = String(item.fullText.prefix(llmInputBudget))
         guard text.trimmingCharacters(in: .whitespacesAndNewlines).count > 3 else {
             item.aiStatus = .skipped
+            setStage(item, .done, create: false)
             return
         }
         let existing = topTags(limit: 30).joined(separator: ", ")
@@ -223,6 +351,7 @@ final class Librarian {
                 prompt: prompt, maxTokens: 550, temperature: 0.2)
             guard let parsed = Self.parseJSON(reply) else {
                 item.aiStatus = .failed
+                setStage(item, .failed("Couldn't summarize; try Regenerate"), create: false)
                 try? context?.save()
                 return
             }
@@ -247,8 +376,10 @@ final class Librarian {
                 item.fullText + "\n" + item.summary + "\n" + item.takeaways.joined(separator: "\n") + "\n" + item.tags.joined(separator: " ")))
             item.aiVersion = Self.aiVersion
             item.aiStatus = .done
+            setStage(item, .done, create: false)
         } catch {
             item.aiStatus = .failed
+            setStage(item, .failed("Couldn't summarize; try Regenerate"), create: false)
         }
         try? context?.save()
     }
