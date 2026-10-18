@@ -166,6 +166,10 @@ enum ContentExtractor {
         guard let source = CGImageSourceCreateWithData(imageData as CFData, nil),
               let cgImage = CGImageSourceCreateImageAtIndex(source, 0, nil)
         else { return "" }
+        return recognizeText(in: cgImage)
+    }
+
+    static func recognizeText(in cgImage: CGImage) -> String {
         let request = VNRecognizeTextRequest()
         request.recognitionLevel = .accurate
         request.usesLanguageCorrection = true
@@ -213,27 +217,51 @@ enum ContentExtractor {
         return (jpeg(frame.image), duration)
     }
 
-    /// Speech-to-text for a video's audio, entirely on-device. Returns "" if unavailable or not permitted.
-    static func transcribe(_ videoURL: URL) async -> String {
+    /// What Loom could read from a video: its speech and any text shown on screen.
+    struct VideoText: Sendable {
+        var transcript: String
+        var screenText: String
+        /// Why there's no transcript, in words for the user; nil when speech was transcribed.
+        var speechProblem: String?
+    }
+
+    static func videoText(_ url: URL) async -> VideoText {
+        async let speech = transcribe(url)
+        async let screen = screenText(inVideo: url)
+        let (transcript, screenText) = await (speech, screen)
+        return VideoText(transcript: transcript.text, screenText: screenText, speechProblem: transcript.problem)
+    }
+
+    /// Speech-to-text for a video's audio, entirely on-device. When there's no text, `problem` says why.
+    static func transcribe(_ videoURL: URL) async -> (text: String, problem: String?) {
         let status = await withCheckedContinuation { (continuation: CheckedContinuation<SFSpeechRecognizerAuthorizationStatus, Never>) in
             SFSpeechRecognizer.requestAuthorization { continuation.resume(returning: $0) }
         }
-        guard status == .authorized,
-              let recognizer = SFSpeechRecognizer() ?? SFSpeechRecognizer(locale: Locale(identifier: "en-US")),
-              recognizer.supportsOnDeviceRecognition
-        else { return "" }
+        guard status == .authorized else {
+            #if os(macOS)
+            return ("", "Speech Recognition is off for Loom. Turn it on in System Settings › Privacy & Security › Speech Recognition, then tap Regenerate.")
+            #else
+            return ("", "Speech Recognition is off for Loom. Turn it on in Settings › Privacy & Security › Speech Recognition, then tap Regenerate.")
+            #endif
+        }
+        guard let recognizer = [SFSpeechRecognizer(), SFSpeechRecognizer(locale: Locale(identifier: "en-US"))]
+            .compactMap({ $0 }).first(where: \.supportsOnDeviceRecognition)
+        else { return ("", "This device can't transcribe speech offline.") }
 
         // Pull the audio track out into a temporary .m4a for the recognizer.
         let asset = AVURLAsset(url: videoURL)
-        guard let tracks = try? await asset.loadTracks(withMediaType: .audio), !tracks.isEmpty,
-              let export = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetAppleM4A)
-        else { return "" }
+        guard let tracks = try? await asset.loadTracks(withMediaType: .audio), !tracks.isEmpty else {
+            return ("", "This video has no sound.")
+        }
+        guard let export = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetAppleM4A) else {
+            return ("", "Couldn't read this video's sound.")
+        }
         let audioURL = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString).m4a")
         defer { try? FileManager.default.removeItem(at: audioURL) }
         export.outputURL = audioURL
         export.outputFileType = .m4a
         await export.export()
-        guard export.status == .completed else { return "" }
+        guard export.status == .completed else { return ("", "Couldn't read this video's sound.") }
 
         let request = SFSpeechURLRecognitionRequest(url: audioURL)
         request.requiresOnDeviceRecognition = true
@@ -257,7 +285,30 @@ enum ContentExtractor {
                 }
             }
         }
-        return String(text.prefix(40_000))
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? ("", "No speech was found in this video.") : (String(trimmed.prefix(40_000)), nil)
+    }
+
+    /// Text shown on screen (captions, slides, signs), read from frames spread through the video.
+    static func screenText(inVideo url: URL, frames: Int = 8) async -> String {
+        let asset = AVURLAsset(url: url)
+        guard let duration = try? await asset.load(.duration), duration.seconds.isFinite, duration.seconds > 0 else { return "" }
+        let generator = AVAssetImageGenerator(asset: asset)
+        generator.appliesPreferredTrackTransform = true
+        generator.maximumSize = CGSize(width: 1280, height: 1280)
+        var seen = Set<String>()
+        var lines: [String] = []
+        for i in 0..<frames {
+            // Spread samples across the video, skipping the very start and end.
+            let time = CMTime(seconds: duration.seconds * (Double(i) + 0.5) / Double(frames), preferredTimescale: 600)
+            guard let frame = try? await generator.image(at: time) else { continue }
+            for line in recognizeText(in: frame.image).split(separator: "\n") {
+                let text = line.trimmingCharacters(in: .whitespaces)
+                guard text.count > 2, seen.insert(text.lowercased()).inserted else { continue }
+                lines.append(text)
+            }
+        }
+        return String(lines.joined(separator: "\n").prefix(8_000))
     }
 
     static func formatDuration(_ seconds: Double) -> String {
