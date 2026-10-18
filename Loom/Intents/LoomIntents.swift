@@ -156,13 +156,13 @@ struct AskLoomIntent: AppIntent {
         let hits = Array(SearchIndex.rank(LoomIntentSupport.allItems(), query: q, limit: 5).map(\.item))
         let prompt = AskView.buildPrompt(question: q, sources: hits, history: [], perItem: AskView.perItemBudget(llm))
         let answer = try await llm.generate(system: AskView.systemPrompt, prompt: prompt, maxTokens: 400, temperature: 0.4)
-        let cited = AskView.citedSources(in: answer, from: hits.map(\.id))
-        let sources = cited.compactMap { id in hits.first { $0.id == id } }.prefix(3).map(ItemEntity.init(item:))
+        let cited = AskView.renumberCitations(answer, sourceIDs: hits.map(\.id))
+        let sources = cited.sourceIDs.compactMap { id in hits.first { $0.id == id } }.prefix(3).map(ItemEntity.init(item:))
 
-        let spoken = Citations.plain(answer)
+        let spoken = Citations.plain(cited.text)
         return .result(
             dialog: IntentDialog(full: LocalizedStringResource(stringLiteral: spoken), supporting: "From your library"),
-            view: IntentSnippetView(question: q, answer: answer, sources: Array(sources),
+            view: IntentSnippetView(question: q, answer: cited.text, sources: Array(sources),
                                     footnote: "Answered on this \(LoomIntentSupport.deviceName). Nothing was sent anywhere."))
     }
 }

@@ -352,7 +352,8 @@ final class Librarian {
                 let fields = try await llm.organizeWithAppleModel(
                     Self.applePrompt(kind: item.kind, text: text, existingTags: existing),
                     instructions: "You are a precise librarian for a private personal knowledge library.")
-                parsed = Organized(title: fields.title, summary: fields.summary, takeaways: fields.takeaways, tags: fields.tags)
+                parsed = Organized(title: fields.title, summary: fields.summary, takeaways: fields.takeaways,
+                                   tags: Self.relevantTags(fields.tags, existing: existing, content: text))
             } else {
                 let reply = try await llm.generate(
                     system: "You are a precise librarian. You only ever reply with valid JSON.",
@@ -401,11 +402,23 @@ final class Librarian {
         """
         Read this saved \(kind.rawValue) and capture what is worth remembering from it.
         If the content is too thin to learn from, keep takeaways to what it actually says.
-        \(existingTags.isEmpty ? "" : "Prefer reusing these existing tags when they fit: \(existingTags)")
+        Tags must name topics this content is actually about.
 
         CONTENT:
         \(text)
+        \(existingTags.isEmpty ? "" : "\nThe library already uses these tags. Reuse one only if the content above is clearly about it: \(existingTags)")
         """
+    }
+
+    /// Small models sometimes copy the whole list of existing tags. Keep a reused tag only if the content mentions it.
+    private static func relevantTags(_ tags: [String], existing: String, content: String) -> [String] {
+        let known = Set(existing.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces).lowercased() })
+        let haystack = content.lowercased()
+        return tags.filter { tag in
+            let t = tag.lowercased().trimmingCharacters(in: .whitespaces)
+            guard known.contains(t) else { return true }
+            return t.split(separator: " ").contains { haystack.contains(String($0.prefix(5))) }
+        }
     }
 
     private static func parseJSON(_ reply: String) -> Organized? {

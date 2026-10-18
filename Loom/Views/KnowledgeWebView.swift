@@ -204,6 +204,24 @@ final class WebSimulation {
                 nodes[j].vx -= dx * ci * inv
                 nodes[j].vy -= dy * ci * inv
 
+                // Pills are wider than their circle: push overlapping pills apart along the shorter overlap.
+                if let hi = pillHalfSizes[i], let hj = pillHalfSizes[j] {
+                    let ox = hi.width + hj.width + 10 - abs(dx)
+                    let oy = hi.height + hj.height + 6 - abs(dy)
+                    if ox > 0 && oy > 0 {
+                        if ox < oy {
+                            let push = ox * 0.25 * (dx < 0 ? -1 : 1)
+                            nodes[i].vx -= push
+                            nodes[j].vx += push
+                        } else {
+                            let push = oy * 0.25 * (dy < 0 ? -1 : 1)
+                            nodes[i].vy -= push
+                            nodes[j].vy += push
+                        }
+                        continue
+                    }
+                }
+
                 let minD = nodes[i].radius + nodes[j].radius + 6
                 if d2 < minD * minD {
                     let d = d2.squareRoot()

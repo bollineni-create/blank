@@ -44,7 +44,10 @@ enum SearchIndex {
         let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !q.isEmpty else { return [] }
         let qVector = embed(q)
-        let words = q.lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init).filter { $0.count > 1 }
+        // Content words only, with a light plural stem so "invoices" finds "invoice".
+        let words = q.lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init)
+            .filter { $0.count > 1 && !stopwords.contains($0) }
+            .map(stem)
 
         var results: [(Item, Float)] = []
         for item in items {
@@ -65,6 +68,18 @@ enum SearchIndex {
             if keyword > 0 || semantic > 0.35 { results.append((item, score)) }
         }
         return results.sorted { $0.1 > $1.1 }.prefix(limit).map { (item: $0.0, score: $0.1) }
+    }
+
+    private static let stopwords: Set<String> = [
+        "a", "an", "and", "are", "as", "at", "be", "by", "do", "for", "from", "how", "i", "in", "is", "it", "me",
+        "my", "of", "on", "or", "so", "the", "to", "was", "what", "when", "where", "which", "who", "why", "with", "about",
+    ]
+
+    private static func stem(_ word: String) -> String {
+        if word.count > 4, word.hasSuffix("ies") { return String(word.dropLast(3)) + "y" }
+        if word.count > 4, word.hasSuffix("es"), !word.hasSuffix("ses") { return String(word.dropLast(1)) }
+        if word.count > 3, word.hasSuffix("s"), !word.hasSuffix("ss") { return String(word.dropLast()) }
+        return word
     }
 
     static func chunk(_ text: String, size: Int) -> [String] {

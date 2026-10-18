@@ -202,7 +202,8 @@ struct AskView: View {
                 answer = streaming ?? ""
             }
             if !answer.isEmpty {
-                let reply = ChatMessage(isUser: false, text: answer, sourceIDs: Self.citedSources(in: answer, from: sourceIDs))
+                let cited = Self.renumberCitations(answer, sourceIDs: sourceIDs)
+                let reply = ChatMessage(isUser: false, text: cited.text, sourceIDs: cited.sourceIDs)
                 context.insert(reply)
                 reply.conversation = convo
             }
@@ -230,7 +231,14 @@ struct AskView: View {
     }
 
     static func buildPrompt(question: String, sources: [Item], history: [ChatMessage], perItem: Int) -> String {
-        var out = ""
+        // The question goes first and the instruction last, so small on-device models answer it
+        // instead of continuing the list of library items.
+        var out = "QUESTION: \(question)\n\n"
+        if !history.isEmpty {
+            out += "EARLIER IN THIS CHAT:\n"
+            for m in history { out += (m.isUser ? "User: " : "Loom: ") + String(m.text.prefix(600)) + "\n" }
+            out += "\n"
+        }
         if !sources.isEmpty {
             out += "LIBRARY ITEMS:\n"
             for (i, item) in sources.enumerated() {
@@ -238,25 +246,34 @@ struct AskView: View {
                 var text = item.summary.isEmpty ? "" : "Summary: \(item.summary)\n"
                 if !item.takeaways.isEmpty { text += "Takeaways: " + item.takeaways.joined(separator: " | ") + "\n" }
                 text += String(item.fullText.prefix(perItem))
-                if !item.tags.isEmpty { text += "\nTags: \(item.tags.joined(separator: ", "))" }
                 out += "[\(i + 1)] \(item.displayTitle) (\(item.kind.rawValue), saved \(date))\n\(text)\n\n"
             }
         } else {
             out += "LIBRARY ITEMS: none matched this question.\n\n"
         }
-        if !history.isEmpty {
-            out += "EARLIER IN THIS CHAT:\n"
-            for m in history { out += (m.isUser ? "User: " : "Loom: ") + String(m.text.prefix(600)) + "\n" }
-            out += "\n"
-        }
-        out += "QUESTION: \(question)"
+        out += "Answer the QUESTION in your own words in one to four sentences. Use only the items that are relevant, "
+            + "cite them inline like [1], and don't repeat or list the items themselves."
         return out
     }
 
-    /// Keeps the sources the answer actually cited; falls back to all retrieved ones.
-    static func citedSources(in answer: String, from ids: [UUID]) -> [UUID] {
-        let cited = ids.enumerated().filter { answer.contains("[\($0.offset + 1)]") }.map(\.element)
-        return cited.isEmpty ? ids.prefix(3).map { $0 } : cited
+    /// Keeps only the sources the answer cited and renumbers its `[n]` markers to match,
+    /// so "[1]" in the text is the first source chip. Falls back to the top three when nothing is cited.
+    static func renumberCitations(_ answer: String, sourceIDs ids: [UUID]) -> (text: String, sourceIDs: [UUID]) {
+        guard let regex = try? NSRegularExpression(pattern: #"\[(\d+)\]"#) else { return (answer, Array(ids.prefix(3))) }
+        let ns = answer as NSString
+        let matches = regex.matches(in: answer, range: NSRange(location: 0, length: ns.length))
+        var order: [Int] = []
+        for m in matches {
+            if let n = Int(ns.substring(with: m.range(at: 1))), ids.indices.contains(n - 1), !order.contains(n) { order.append(n) }
+        }
+        guard !order.isEmpty else { return (answer, Array(ids.prefix(3))) }
+        var text = answer
+        for m in matches.reversed() {
+            guard let n = Int(ns.substring(with: m.range(at: 1))), let range = Range(m.range, in: text) else { continue }
+            // Citations to items that weren't retrieved are dropped.
+            text.replaceSubrange(range, with: order.firstIndex(of: n).map { "[\($0 + 1)]" } ?? "")
+        }
+        return (text, order.map { ids[$0 - 1] })
     }
 
     private var deviceName: String {
