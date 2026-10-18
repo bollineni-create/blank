@@ -14,12 +14,14 @@ struct SettingsView: View {
             } header: {
                 Text("AI Model")
             } footer: {
-                Text("Models are downloaded once from Hugging Face and then run entirely on this device with Apple MLX. Your library never leaves the device.")
+                Text("Models are downloaded once from Hugging Face and then run entirely on this device with llama.cpp. Your library never leaves the device.")
             }
 
             Section("Organizing") {
                 Toggle("Auto-organize new items", isOn: $bindableLibrarian.autoOrganize)
                 Button("Organize all unprocessed items") { librarian.organizeAllUnprocessed() }
+                    .disabled(!llm.isReady)
+                Button("Redo summaries & takeaways for everything") { librarian.reorganizeAll() }
                     .disabled(!llm.isReady)
                 LabeledContent("Items", value: "\(items.count)")
                 LabeledContent("Organized", value: "\(items.filter { $0.aiStatus == .done }.count)")

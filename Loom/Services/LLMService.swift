@@ -1,40 +1,33 @@
 import Foundation
-import MLX
-import MLXLLM
-import MLXLMCommon
-import MLXHuggingFace
-import HuggingFace
-import Tokenizers
+import LlamaKit
 
-/// A model you can download and run on the device.
+/// A model you can download and run on the device (GGUF format, run by llama.cpp).
 struct LocalModel: Identifiable, Hashable {
-    let configuration: ModelConfiguration
     let name: String
+    /// Hugging Face repo and file, e.g. `unsloth/Qwen3-1.7B-GGUF` + `Qwen3-1.7B-Q4_K_M.gguf`.
+    let repo: String
+    let file: String
     let sizeGB: Double
     let note: String
 
-    var id: String { configuration.name }
-
-    static func == (a: LocalModel, b: LocalModel) -> Bool { a.id == b.id }
-    func hash(into hasher: inout Hasher) { hasher.combine(id) }
-
-    /// Repo folder name the Hugging Face cache uses, e.g. `models--mlx-community--Qwen3-1.7B-4bit`.
-    var cacheFolderName: String { "models--" + id.replacingOccurrences(of: "/", with: "--") }
+    var id: String { file }
+    var downloadURL: URL { URL(string: "https://huggingface.co/\(repo)/resolve/main/\(file)?download=true")! }
+    var isQwen3: Bool { file.hasPrefix("Qwen3") }
 
     static let catalog: [LocalModel] = [
-        .init(configuration: LLMRegistry.qwen3_0_6b_4bit, name: "Qwen3 0.6B", sizeGB: 0.35,
+        .init(name: "Qwen3 0.6B", repo: "unsloth/Qwen3-0.6B-GGUF", file: "Qwen3-0.6B-Q8_0.gguf", sizeGB: 0.64,
               note: "Tiny and fast. Works on any recent iPhone; basic quality."),
-        .init(configuration: LLMRegistry.gemma3_1B_qat_4bit, name: "Gemma 3 1B", sizeGB: 0.75,
+        .init(name: "Gemma 3 1B", repo: "unsloth/gemma-3-1b-it-GGUF", file: "gemma-3-1b-it-Q4_K_M.gguf", sizeGB: 0.81,
               note: "Small and quick, good for tagging and summaries."),
-        .init(configuration: LLMRegistry.llama3_2_1B_4bit, name: "Llama 3.2 1B", sizeGB: 0.7,
+        .init(name: "Llama 3.2 1B", repo: "bartowski/Llama-3.2-1B-Instruct-GGUF", file: "Llama-3.2-1B-Instruct-Q4_K_M.gguf", sizeGB: 0.81,
               note: "Small and quick general model."),
-        .init(configuration: LLMRegistry.qwen3_1_7b_4bit, name: "Qwen3 1.7B", sizeGB: 1.0,
+        .init(name: "Qwen3 1.7B", repo: "unsloth/Qwen3-1.7B-GGUF", file: "Qwen3-1.7B-Q4_K_M.gguf", sizeGB: 1.1,
               note: "Recommended for iPhone. Best balance of speed and quality."),
-        .init(configuration: LLMRegistry.llama3_2_3B_4bit, name: "Llama 3.2 3B", sizeGB: 1.8,
+        .init(name: "Llama 3.2 3B", repo: "bartowski/Llama-3.2-3B-Instruct-GGUF", file: "Llama-3.2-3B-Instruct-Q4_K_M.gguf", sizeGB: 2.0,
               note: "Better answers. iPhone 15 Pro or newer, or any Apple silicon Mac."),
-        .init(configuration: LLMRegistry.qwen3_4b_4bit, name: "Qwen3 4B", sizeGB: 2.3,
+        .init(name: "Qwen3 4B", repo: "unsloth/Qwen3-4B-GGUF", file: "Qwen3-4B-Q4_K_M.gguf", sizeGB: 2.5,
               note: "Recommended for Mac. Strong reasoning over your notes."),
-        .init(configuration: LLMRegistry.qwen3_8b_4bit, name: "Qwen3 8B", sizeGB: 4.6,
+        .init(name: "Qwen3 8B", repo: "unsloth/Qwen3-8B-GGUF", file: "Qwen3-8B-Q4_K_M.gguf", sizeGB: 5.0,
               note: "Mac only (16 GB RAM or more). Highest quality here."),
     ]
 
@@ -47,7 +40,7 @@ struct LocalModel: Identifiable, Hashable {
     }
 }
 
-/// Downloads, loads and runs the on-device language model (Apple MLX).
+/// Downloads, loads and runs the on-device language model.
 @MainActor
 @Observable
 final class LLMService {
@@ -63,15 +56,15 @@ final class LLMService {
     private(set) var loadedModel: LocalModel?
     private(set) var isGenerating = false
 
-    private var container: ModelContainer?
+    private var engine: LlamaEngine?
     private var loadTask: Task<Void, Never>?
 
     private static let selectedKey = "selectedModelID"
 
-    /// Where downloaded weights live. Application Support (not Caches) so iOS doesn't purge them.
+    /// Where downloaded models live. Application Support (not Caches) so iOS doesn't purge them.
     static let modelsDirectory: URL = {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        var dir = base.appendingPathComponent("Models/hub", isDirectory: true)
+        var dir = base.appendingPathComponent("Models", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         var values = URLResourceValues()
         values.isExcludedFromBackup = true
@@ -79,12 +72,16 @@ final class LLMService {
         return dir
     }()
 
-    /// Must run before any Hugging Face client is created.
     static func configureEnvironment() {
-        setenv("HF_HUB_CACHE", modelsDirectory.path, 1)
-        #if os(iOS)
-        // Keep MLX's buffer cache small so the app stays under iOS memory limits.
-        MLX.Memory.cacheLimit = 32 * 1024 * 1024
+        _ = modelsDirectory
+    }
+
+    /// Context window: how much text the model can look at once.
+    private var contextLength: Int {
+        #if os(macOS)
+        8192
+        #else
+        4096
         #endif
     }
 
@@ -100,28 +97,27 @@ final class LLMService {
 
     var hasChosenModel: Bool { UserDefaults.standard.string(forKey: Self.selectedKey) != nil }
 
+    private func fileURL(_ model: LocalModel) -> URL {
+        Self.modelsDirectory.appendingPathComponent(model.file)
+    }
+
     func isDownloaded(_ model: LocalModel) -> Bool {
-        let dir = Self.modelsDirectory.appendingPathComponent(model.cacheFolderName)
-        return FileManager.default.fileExists(atPath: dir.path)
+        FileManager.default.fileExists(atPath: fileURL(model).path)
     }
 
     func diskUsage(_ model: LocalModel) -> Int64 {
-        let dir = Self.modelsDirectory.appendingPathComponent(model.cacheFolderName)
-        guard let e = FileManager.default.enumerator(at: dir, includingPropertiesForKeys: [.totalFileAllocatedSizeKey]) else { return 0 }
-        var total: Int64 = 0
-        for case let url as URL in e {
-            total += Int64((try? url.resourceValues(forKeys: [.totalFileAllocatedSizeKey]).totalFileAllocatedSize) ?? 0)
-        }
-        return total
+        let size = try? FileManager.default.attributesOfItem(atPath: fileURL(model).path)[.size] as? NSNumber
+        return size?.int64Value ?? 0
     }
 
     func delete(_ model: LocalModel) {
-        if loadedModel == model {
-            container = nil
+        if loadedModel == model || selectedModel == model {
+            loadTask?.cancel()
+            engine = nil
             loadedModel = nil
             state = .notLoaded
         }
-        try? FileManager.default.removeItem(at: Self.modelsDirectory.appendingPathComponent(model.cacheFolderName))
+        try? FileManager.default.removeItem(at: fileURL(model))
     }
 
     /// Loads the selected model if it is already on disk (never starts a download by itself).
@@ -134,27 +130,35 @@ final class LLMService {
         if loadedModel == model, state == .ready { return }
         selectedModel = model
         loadTask?.cancel()
-        container = nil
+        engine = nil
         loadedModel = nil
-        state = isDownloaded(model) ? .loading : .downloading(0)
+        let destination = fileURL(model)
+        let contextLength = contextLength
 
         loadTask = Task {
             do {
-                let container = try await #huggingFaceLoadModelContainer(
-                    configuration: model.configuration
-                ) { progress in
-                    Task { @MainActor [weak self] in
-                        guard let self, case .downloading = self.state else { return }
-                        let fraction = progress.fractionCompleted
-                        self.state = fraction >= 1 ? .loading : .downloading(fraction)
+                if !FileManager.default.fileExists(atPath: destination.path) {
+                    state = .downloading(0)
+                    try await FileDownloader.download(model.downloadURL, to: destination) { fraction in
+                        Task { @MainActor [weak self] in
+                            guard let self, case .downloading = self.state else { return }
+                            self.state = .downloading(fraction)
+                        }
                     }
                 }
                 try Task.checkCancellation()
-                self.container = container
+                state = .loading
+                let engine = try await Task.detached(priority: .userInitiated) {
+                    try LlamaEngine(path: destination.path, contextLength: contextLength)
+                }.value
+                try Task.checkCancellation()
+                self.engine = engine
                 self.loadedModel = model
                 self.state = .ready
             } catch is CancellationError {
                 // A newer load replaced this one.
+            } catch let error as URLError where error.code == .cancelled {
+                // Download cancelled.
             } catch {
                 self.state = .failed(error.localizedDescription)
             }
@@ -171,21 +175,18 @@ final class LLMService {
         onToken: ((String) -> Void)? = nil
     ) async throws -> String {
         while isGenerating { try await Task.sleep(for: .milliseconds(150)) }
-        guard let container else { throw LLMError.notReady }
+        guard let engine, let model = loadedModel else { throw LLMError.notReady }
         isGenerating = true
         defer { isGenerating = false }
 
-        let session = ChatSession(
-            container,
-            instructions: system,
-            generateParameters: GenerateParameters(maxTokens: maxTokens, temperature: temperature),
-            // Qwen3 "thinking" adds latency and noise we don't want here; other models ignore this.
-            additionalContext: ["enable_thinking": false]
-        )
+        // Qwen3 "thinking" adds latency we don't want here; this is its built-in off switch.
+        let userText = model.isQwen3 ? prompt + " /no_think" : prompt
+        let messages = [ChatTurn(role: "system", content: system), ChatTurn(role: "user", content: userText)]
+
         var raw = ""
-        for try await chunk in session.streamResponse(to: prompt) {
+        for try await piece in engine.stream(messages, maxTokens: maxTokens, temperature: temperature) {
             try Task.checkCancellation()
-            raw += chunk
+            raw += piece
             onToken?(Self.visibleText(raw))
         }
         return Self.visibleText(raw)
@@ -201,10 +202,69 @@ final class LLMService {
 
 enum LLMError: LocalizedError {
     case notReady
+    case badResponse(Int)
 
     var errorDescription: String? {
         switch self {
         case .notReady: "No AI model is loaded. Download one in Settings → AI Model."
+        case .badResponse(let code): "The model download failed (HTTP \(code)). Check your connection and try again."
         }
+    }
+}
+
+/// Downloads a large file with progress, moving it into place only when complete.
+private final class FileDownloader: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
+    private let destination: URL
+    private let onProgress: @Sendable (Double) -> Void
+    private var continuation: CheckedContinuation<Void, Error>?
+    private var moveError: Error?
+
+    private init(destination: URL, onProgress: @escaping @Sendable (Double) -> Void) {
+        self.destination = destination
+        self.onProgress = onProgress
+    }
+
+    static func download(_ url: URL, to destination: URL, onProgress: @escaping @Sendable (Double) -> Void) async throws {
+        let downloader = FileDownloader(destination: destination, onProgress: onProgress)
+        let session = URLSession(configuration: .default, delegate: downloader, delegateQueue: nil)
+        defer { session.finishTasksAndInvalidate() }
+        let task = session.downloadTask(with: url)
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                downloader.continuation = continuation
+                task.resume()
+            }
+        } onCancel: {
+            task.cancel()
+        }
+    }
+
+    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64,
+                    totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
+        guard totalBytesExpectedToWrite > 0 else { return }
+        onProgress(Double(totalBytesWritten) / Double(totalBytesExpectedToWrite))
+    }
+
+    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
+        // The temporary file is deleted when this method returns, so move it now.
+        if let http = downloadTask.response as? HTTPURLResponse, http.statusCode != 200 {
+            moveError = LLMError.badResponse(http.statusCode)
+            return
+        }
+        do {
+            try? FileManager.default.removeItem(at: destination)
+            try FileManager.default.moveItem(at: location, to: destination)
+        } catch {
+            moveError = error
+        }
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        if let error = error ?? moveError {
+            continuation?.resume(throwing: error)
+        } else {
+            continuation?.resume()
+        }
+        continuation = nil
     }
 }

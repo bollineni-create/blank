@@ -1,9 +1,12 @@
 import SwiftUI
 import SwiftData
 import QuickLook
+import AVKit
 
 struct ItemDetailView: View {
     @Bindable var item: Item
+    /// Called after deleting, when shown in a panel rather than pushed.
+    var onDelete: (() -> Void)? = nil
     @Environment(Librarian.self) private var librarian
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
@@ -13,6 +16,7 @@ struct ItemDetailView: View {
     @State private var showExtracted = false
     @State private var previewURL: URL?
     @State private var confirmDelete = false
+    @State private var player: AVPlayer?
 
     var body: some View {
         Form {
@@ -25,36 +29,59 @@ struct ItemDetailView: View {
                         Label(url.absoluteString, systemImage: "safari").lineLimit(1)
                     }
                 }
-                if let data = item.thumbnail, let image = PlatformImage(data: data) {
+                if item.kind == .video, let fileURL = item.attachmentURL {
+                    VideoPlayer(player: player)
+                        .frame(height: 320)
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                        .onAppear { if player == nil { player = AVPlayer(url: fileURL) } }
+                        .onDisappear { player?.pause() }
+                } else if let data = item.thumbnail, let image = PlatformImage(data: data) {
                     Image(platformImage: image)
                         .resizable().scaledToFit()
                         .frame(maxHeight: 320)
                         .clipShape(RoundedRectangle(cornerRadius: 10))
                         .onTapGesture { previewURL = item.attachmentURL }
                 }
-                if let fileURL = item.attachmentURL, item.kind != .image {
+                if let fileURL = item.attachmentURL, item.kind != .image, item.kind != .video {
                     Button { previewURL = fileURL } label: { Label("Open \(item.kind == .pdf ? "PDF" : "File")", systemImage: "eye") }
                 }
+            }
+
+            Section {
+                if item.summary.isEmpty && item.takeaways.isEmpty {
+                    Text(statusText).foregroundStyle(.secondary)
+                } else {
+                    if !item.summary.isEmpty {
+                        Text(item.summary)
+                            .font(.body.weight(.medium))
+                            .textSelection(.enabled)
+                    }
+                    if !item.takeaways.isEmpty {
+                        VStack(alignment: .leading, spacing: 10) {
+                            ForEach(Array(item.takeaways.enumerated()), id: \.offset) { _, lesson in
+                                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                                    Image(systemName: "lightbulb.fill")
+                                        .font(.caption)
+                                        .foregroundStyle(.yellow)
+                                    Text(lesson).textSelection(.enabled)
+                                }
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    }
+                }
+                Button { librarian.reorganize(item) } label: {
+                    Label(item.summary.isEmpty ? "Summarize with AI" : "Regenerate", systemImage: "sparkles")
+                }
+                .disabled(item.aiStatus == .processing)
+            } header: {
+                Label("What to take away", systemImage: "sparkles")
             }
 
             Section(item.kind == .note ? "Note" : "Your notes") {
                 TextEditor(text: $item.body)
                     .frame(minHeight: item.kind == .note ? 240 : 90)
                     .font(.body)
-            }
-
-            Section {
-                if item.summary.isEmpty {
-                    Text(statusText).foregroundStyle(.secondary)
-                } else {
-                    Text(item.summary).textSelection(.enabled)
-                }
-                Button { librarian.reorganize(item) } label: {
-                    Label(item.summary.isEmpty ? "Organize with AI" : "Regenerate", systemImage: "sparkles")
-                }
-                .disabled(item.aiStatus == .processing)
-            } header: {
-                Text("AI summary")
             }
 
             Section("Tags") {
@@ -119,7 +146,7 @@ struct ItemDetailView: View {
         .onDisappear { librarian.itemEdited(item) }
         .confirmationDialog("Delete this item?", isPresented: $confirmDelete) {
             Button("Delete", role: .destructive) {
-                dismiss()
+                if let onDelete { onDelete() } else { dismiss() }
                 librarian.delete(item)
             }
         }
@@ -131,7 +158,7 @@ struct ItemDetailView: View {
         case .processing: "Reading and organizing…"
         case .failed: "The model couldn't organize this item. Try again."
         case .skipped: "Auto-organize is off."
-        case .done: "No summary."
+        case .done: "Nothing to summarize yet."
         }
     }
 }
@@ -167,6 +194,8 @@ struct FlowLayout: Layout {
 
 struct NoteEditorSheet: View {
     var space: Space?
+    /// Tags to start the note with (e.g. when created from a mind map branch).
+    var tags: [String] = []
     @Environment(Librarian.self) private var librarian
     @Environment(\.dismiss) private var dismiss
     @State private var title = ""
@@ -184,7 +213,8 @@ struct NoteEditorSheet: View {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
-                        librarian.addNote(text, title: title, space: space)
+                        let note = librarian.addNote(text, title: title, space: space)
+                        if !tags.isEmpty { note.tags = tags + note.tags.filter { !tags.contains($0) } }
                         dismiss()
                     }
                     .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)

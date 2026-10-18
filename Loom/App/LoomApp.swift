@@ -26,7 +26,7 @@ struct LoomApp: App {
                 .environment(librarian)
                 .onAppear(perform: start)
                 .onChange(of: llm.state) { _, state in
-                    if state == .ready { librarian.runQueue() }
+                    if state == .ready { librarian.modelBecameReady() }
                 }
         }
         .modelContainer(container)
@@ -63,6 +63,7 @@ struct LoomApp: App {
             for item in stuck { item.aiStatus = .pending }
             try? context.save()
         }
+        librarian.upgradeOldSummaries()
         llm.loadSelectedIfDownloaded()
     }
 }
@@ -70,4 +71,5 @@ struct LoomApp: App {
 extension Notification.Name {
     static let loomNewNote = Notification.Name("loomNewNote")
     static let loomNewLink = Notification.Name("loomNewLink")
+    static let loomPaste = Notification.Name("loomPaste")
 }

@@ -4,6 +4,8 @@ import Vision
 import CoreGraphics
 import ImageIO
 import UniformTypeIdentifiers
+import AVFoundation
+import Speech
 #if os(macOS)
 import AppKit
 #else
@@ -186,11 +188,83 @@ enum ContentExtractor {
             kCGImageSourceThumbnailMaxPixelSize: maxPixel,
         ]
         guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return nil }
+        return jpeg(image)
+    }
+
+    static func jpeg(_ image: CGImage) -> Data? {
         let output = NSMutableData()
         guard let dest = CGImageDestinationCreateWithData(output, UTType.jpeg.identifier as CFString, 1, nil) else { return nil }
         CGImageDestinationAddImage(dest, image, [kCGImageDestinationLossyCompressionQuality: 0.75] as CFDictionary)
         guard CGImageDestinationFinalize(dest) else { return nil }
         return output as Data
     }
-}
 
+    // MARK: Video
+
+    /// A frame for the card and the running time, read on-device.
+    static func videoInfo(_ url: URL) async -> (thumbnail: Data?, duration: Double) {
+        let asset = AVURLAsset(url: url)
+        let duration = (try? await asset.load(.duration)).map { CMTimeGetSeconds($0) } ?? 0
+        let generator = AVAssetImageGenerator(asset: asset)
+        generator.appliesPreferredTrackTransform = true
+        generator.maximumSize = CGSize(width: 600, height: 600)
+        let time = CMTime(seconds: duration.isFinite ? min(1, duration / 2) : 0, preferredTimescale: 600)
+        guard let frame = try? await generator.image(at: time) else { return (nil, duration) }
+        return (jpeg(frame.image), duration)
+    }
+
+    /// Speech-to-text for a video's audio, entirely on-device. Returns "" if unavailable or not permitted.
+    static func transcribe(_ videoURL: URL) async -> String {
+        let status = await withCheckedContinuation { (continuation: CheckedContinuation<SFSpeechRecognizerAuthorizationStatus, Never>) in
+            SFSpeechRecognizer.requestAuthorization { continuation.resume(returning: $0) }
+        }
+        guard status == .authorized,
+              let recognizer = SFSpeechRecognizer() ?? SFSpeechRecognizer(locale: Locale(identifier: "en-US")),
+              recognizer.supportsOnDeviceRecognition
+        else { return "" }
+
+        // Pull the audio track out into a temporary .m4a for the recognizer.
+        let asset = AVURLAsset(url: videoURL)
+        guard let tracks = try? await asset.loadTracks(withMediaType: .audio), !tracks.isEmpty,
+              let export = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetAppleM4A)
+        else { return "" }
+        let audioURL = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString).m4a")
+        defer { try? FileManager.default.removeItem(at: audioURL) }
+        export.outputURL = audioURL
+        export.outputFileType = .m4a
+        await export.export()
+        guard export.status == .completed else { return "" }
+
+        let request = SFSpeechURLRecognitionRequest(url: audioURL)
+        request.requiresOnDeviceRecognition = true
+        request.shouldReportPartialResults = false
+        request.addsPunctuation = true
+        let text = await withCheckedContinuation { (continuation: CheckedContinuation<String, Never>) in
+            let lock = NSLock()
+            var finished = false
+            func finish(_ value: String) {
+                lock.lock()
+                defer { lock.unlock() }
+                guard !finished else { return }
+                finished = true
+                continuation.resume(returning: value)
+            }
+            recognizer.recognitionTask(with: request) { result, error in
+                if let result, result.isFinal {
+                    finish(result.bestTranscription.formattedString)
+                } else if error != nil {
+                    finish("")
+                }
+            }
+        }
+        return String(text.prefix(40_000))
+    }
+
+    static func formatDuration(_ seconds: Double) -> String {
+        guard seconds.isFinite, seconds > 0 else { return "" }
+        let total = Int(seconds.rounded())
+        return total >= 3600
+            ? String(format: "%d:%02d:%02d", total / 3600, total / 60 % 60, total % 60)
+            : String(format: "%d:%02d", total / 60, total % 60)
+    }
+}

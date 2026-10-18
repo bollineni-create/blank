@@ -48,7 +48,7 @@ enum SearchIndex {
 
         var results: [(Item, Float)] = []
         for item in items {
-            let haystack = (item.fullText + " " + item.summary + " " + item.tags.joined(separator: " ")).lowercased()
+            let haystack = (item.fullText + " " + item.summary + " " + item.takeaways.joined(separator: " ") + " " + item.tags.joined(separator: " ")).lowercased()
             var keyword: Float = 0
             if haystack.contains(q.lowercased()) { keyword += 1 }
             if !words.isEmpty {
