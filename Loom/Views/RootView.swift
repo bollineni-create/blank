@@ -3,6 +3,7 @@ import SwiftData
 
 /// What the sidebar is showing.
 enum SidebarSelection: Hashable {
+    case map
     case all
     case favorites
     case kind(ItemKind)
@@ -18,7 +19,7 @@ struct RootView: View {
     @Query(sort: \Space.createdAt) private var spaces: [Space]
     @Query private var items: [Item]
 
-    @State private var selection: SidebarSelection? = .all
+    @State private var selection: SidebarSelection? = .map
     @State private var showingOnboarding = false
     @State private var newSpaceName = ""
     @State private var showingNewSpace = false
@@ -27,6 +28,7 @@ struct RootView: View {
         NavigationSplitView {
             List(selection: $selection) {
                 Section {
+                    Label("Mind Map", systemImage: "point.3.connected.trianglepath.dotted").tag(SidebarSelection.map)
                     Label("Everything", systemImage: "square.grid.2x2").tag(SidebarSelection.all)
                     Label("Ask", systemImage: "sparkles").tag(SidebarSelection.ask)
                     Label("Favorites", systemImage: "star").tag(SidebarSelection.favorites)
@@ -67,7 +69,9 @@ struct RootView: View {
             #endif
         } detail: {
             NavigationStack {
-                switch selection ?? .all {
+                switch selection ?? .map {
+                case .map:
+                    MindMapView()
                 case .ask:
                     AskView()
                 case .settings:

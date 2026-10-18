@@ -167,6 +167,8 @@ struct FlowLayout: Layout {
 
 struct NoteEditorSheet: View {
     var space: Space?
+    /// Tags to start the note with (e.g. when created from a mind map branch).
+    var tags: [String] = []
     @Environment(Librarian.self) private var librarian
     @Environment(\.dismiss) private var dismiss
     @State private var title = ""
@@ -184,7 +186,8 @@ struct NoteEditorSheet: View {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
-                        librarian.addNote(text, title: title, space: space)
+                        let note = librarian.addNote(text, title: title, space: space)
+                        if !tags.isEmpty { note.tags = tags + note.tags.filter { !tags.contains($0) } }
                         dismiss()
                     }
                     .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
