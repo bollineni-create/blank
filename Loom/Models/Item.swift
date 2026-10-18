@@ -3,7 +3,7 @@ import SwiftData
 
 /// What kind of thing was saved.
 enum ItemKind: String, Codable, CaseIterable, Identifiable {
-    case note, link, image, pdf, file
+    case note, link, image, video, pdf, file
 
     var id: String { rawValue }
 
@@ -12,6 +12,7 @@ enum ItemKind: String, Codable, CaseIterable, Identifiable {
         case .note: "Notes"
         case .link: "Links"
         case .image: "Images"
+        case .video: "Videos"
         case .pdf: "PDFs"
         case .file: "Files"
         }
@@ -22,6 +23,7 @@ enum ItemKind: String, Codable, CaseIterable, Identifiable {
         case .note: "note.text"
         case .link: "link"
         case .image: "photo"
+        case .video: "video"
         case .pdf: "doc.richtext"
         case .file: "doc"
         }

@@ -1,5 +1,6 @@
 import Foundation
 import SwiftData
+import UniformTypeIdentifiers
 
 /// Saves things into the library and lets the on-device AI organize them:
 /// extracts text, builds the search embedding, and writes a title, summary and tags.
@@ -78,17 +79,26 @@ final class Librarian {
     func addFile(_ url: URL, space: Space? = nil) {
         guard let name = try? AttachmentStore.importFile(at: url) else { return }
         let stored = AttachmentStore.url(for: name)
-        let ext = url.pathExtension.lowercased()
-        let isImage = ["jpg", "jpeg", "png", "heic", "gif", "tiff", "webp"].contains(ext)
-        let kind: ItemKind = ext == "pdf" ? .pdf : (isImage ? .image : .file)
+        let type = UTType(filenameExtension: url.pathExtension) ?? .data
+        let kind: ItemKind = type.conforms(to: .pdf) ? .pdf
+            : type.conforms(to: .image) ? .image
+            : type.conforms(to: .movie) ? .video
+            : .file
         let title = url.deletingPathExtension().lastPathComponent
         let thumb: Data? = kind == .pdf ? ContentExtractor.pdfThumbnail(stored)
-            : (isImage ? (try? Data(contentsOf: stored)).flatMap { ContentExtractor.thumbnail(from: $0) } : nil)
+            : (kind == .image ? (try? Data(contentsOf: stored)).flatMap { ContentExtractor.thumbnail(from: $0) } : nil)
         let item = Item(kind: kind, title: kind == .image ? "" : title, attachmentName: name, thumbnail: thumb, space: space)
         item.aiStatus = .processing
         insert(item, organize: false)
         Task {
-            item.extractedText = await ContentExtractor.text(fromFile: stored)
+            if kind == .video {
+                let info = await ContentExtractor.videoInfo(stored)
+                item.thumbnail = info.thumbnail
+                let length = ContentExtractor.formatDuration(info.duration)
+                item.extractedText = "Video \(title)" + (length.isEmpty ? "" : ", \(length) long")
+            } else {
+                item.extractedText = await ContentExtractor.text(fromFile: stored)
+            }
             item.aiStatus = .pending
             finishAdding(item)
         }

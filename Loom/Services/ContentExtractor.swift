@@ -4,6 +4,7 @@ import Vision
 import CoreGraphics
 import ImageIO
 import UniformTypeIdentifiers
+import AVFoundation
 #if os(macOS)
 import AppKit
 #else
@@ -186,11 +187,36 @@ enum ContentExtractor {
             kCGImageSourceThumbnailMaxPixelSize: maxPixel,
         ]
         guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return nil }
+        return jpeg(image)
+    }
+
+    static func jpeg(_ image: CGImage) -> Data? {
         let output = NSMutableData()
         guard let dest = CGImageDestinationCreateWithData(output, UTType.jpeg.identifier as CFString, 1, nil) else { return nil }
         CGImageDestinationAddImage(dest, image, [kCGImageDestinationLossyCompressionQuality: 0.75] as CFDictionary)
         guard CGImageDestinationFinalize(dest) else { return nil }
         return output as Data
     }
-}
 
+    // MARK: Video
+
+    /// A frame for the card and the running time, read on-device.
+    static func videoInfo(_ url: URL) async -> (thumbnail: Data?, duration: Double) {
+        let asset = AVURLAsset(url: url)
+        let duration = (try? await asset.load(.duration)).map { CMTimeGetSeconds($0) } ?? 0
+        let generator = AVAssetImageGenerator(asset: asset)
+        generator.appliesPreferredTrackTransform = true
+        generator.maximumSize = CGSize(width: 600, height: 600)
+        let time = CMTime(seconds: duration.isFinite ? min(1, duration / 2) : 0, preferredTimescale: 600)
+        guard let frame = try? await generator.image(at: time) else { return (nil, duration) }
+        return (jpeg(frame.image), duration)
+    }
+
+    static func formatDuration(_ seconds: Double) -> String {
+        guard seconds.isFinite, seconds > 0 else { return "" }
+        let total = Int(seconds.rounded())
+        return total >= 3600
+            ? String(format: "%d:%02d:%02d", total / 3600, total / 60 % 60, total % 60)
+            : String(format: "%d:%02d", total / 60, total % 60)
+    }
+}

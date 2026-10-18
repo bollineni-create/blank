@@ -1,6 +1,7 @@
 import SwiftUI
 import SwiftData
 import QuickLook
+import AVKit
 
 struct ItemDetailView: View {
     @Bindable var item: Item
@@ -13,6 +14,7 @@ struct ItemDetailView: View {
     @State private var showExtracted = false
     @State private var previewURL: URL?
     @State private var confirmDelete = false
+    @State private var player: AVPlayer?
 
     var body: some View {
         Form {
@@ -25,14 +27,20 @@ struct ItemDetailView: View {
                         Label(url.absoluteString, systemImage: "safari").lineLimit(1)
                     }
                 }
-                if let data = item.thumbnail, let image = PlatformImage(data: data) {
+                if item.kind == .video, let fileURL = item.attachmentURL {
+                    VideoPlayer(player: player)
+                        .frame(height: 320)
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                        .onAppear { if player == nil { player = AVPlayer(url: fileURL) } }
+                        .onDisappear { player?.pause() }
+                } else if let data = item.thumbnail, let image = PlatformImage(data: data) {
                     Image(platformImage: image)
                         .resizable().scaledToFit()
                         .frame(maxHeight: 320)
                         .clipShape(RoundedRectangle(cornerRadius: 10))
                         .onTapGesture { previewURL = item.attachmentURL }
                 }
-                if let fileURL = item.attachmentURL, item.kind != .image {
+                if let fileURL = item.attachmentURL, item.kind != .image, item.kind != .video {
                     Button { previewURL = fileURL } label: { Label("Open \(item.kind == .pdf ? "PDF" : "File")", systemImage: "eye") }
                 }
             }

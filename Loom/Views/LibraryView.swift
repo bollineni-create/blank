@@ -57,12 +57,20 @@ struct LibraryView: View {
         .fileImporter(isPresented: $showingFileImporter, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
             if case .success(let urls) = result { urls.forEach { librarian.addFile($0, space: currentSpace) } }
         }
-        .photosPicker(isPresented: $showingPhotos, selection: $photoSelection, maxSelectionCount: 20, matching: .images)
+        .photosPicker(isPresented: $showingPhotos, selection: $photoSelection, maxSelectionCount: 20, matching: .any(of: [.images, .videos]))
         .onChange(of: photoSelection) { _, picked in
             guard !picked.isEmpty else { return }
             Task {
                 for p in picked {
-                    if let data = try? await p.loadTransferable(type: Data.self) { librarian.addImage(data, space: currentSpace) }
+                    if p.supportedContentTypes.contains(where: { $0.conforms(to: .movie) }) {
+                        // Videos come in as a temporary file; the library keeps its own copy.
+                        if let movie = try? await p.loadTransferable(type: PickedMovie.self) {
+                            librarian.addFile(movie.url, space: currentSpace)
+                            try? FileManager.default.removeItem(at: movie.url)
+                        }
+                    } else if let data = try? await p.loadTransferable(type: Data.self) {
+                        librarian.addImage(data, space: currentSpace)
+                    }
                 }
                 photoSelection = []
             }
@@ -90,7 +98,7 @@ struct LibraryView: View {
         Menu {
             Button { showingNote = true } label: { Label("New Note", systemImage: "square.and.pencil") }
             Button { showingLink = true } label: { Label("Save Link", systemImage: "link") }
-            Button { showingPhotos = true } label: { Label("Add Photos", systemImage: "photo.on.rectangle") }
+            Button { showingPhotos = true } label: { Label("Add Photos & Videos", systemImage: "photo.on.rectangle") }
             Button { showingFileImporter = true } label: { Label("Import Files", systemImage: "folder") }
             Button { pasteFromClipboard() } label: { Label("Paste", systemImage: "doc.on.clipboard") }
         } label: {
@@ -181,6 +189,22 @@ struct LibraryView: View {
     #endif
 }
 
+/// A video picked from the photo library, copied out of the picker's temporary file.
+struct PickedMovie: Transferable {
+    let url: URL
+
+    static var transferRepresentation: some TransferRepresentation {
+        FileRepresentation(contentType: .movie) { movie in
+            SentTransferredFile(movie.url)
+        } importing: { received in
+            let copy = FileManager.default.temporaryDirectory
+                .appendingPathComponent("\(UUID().uuidString)-\(received.file.lastPathComponent)")
+            try FileManager.default.copyItem(at: received.file, to: copy)
+            return Self(url: copy)
+        }
+    }
+}
+
 /// A card in the library grid.
 struct ItemCard: View {
     let item: Item
@@ -195,6 +219,12 @@ struct ItemCard: View {
                     .frame(maxWidth: .infinity)
                     .clipped()
                     .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .overlay {
+                        if item.kind == .video {
+                            Image(systemName: "play.circle.fill").font(.system(size: 40))
+                                .foregroundStyle(.white).shadow(radius: 4)
+                        }
+                    }
             }
             HStack(spacing: 6) {
                 Image(systemName: item.kind.symbol).foregroundStyle(Color.accentColor)

@@ -55,8 +55,8 @@ struct MapEdge: Identifiable {
 
 /// Radial layout: groups on a ring around the center, items fanned out behind each group.
 enum MindMapLayout {
-    static let itemSpacing: CGFloat = 165
-    static let ringGap: CGFloat = 105
+    static let itemSpacing: CGFloat = 205
+    static let ringGap: CGFloat = 175
 
     static func groups(for items: [Item], spaces: [Space], grouping: MapGrouping) -> [MapGroup] {
         switch grouping {
@@ -111,7 +111,7 @@ enum MindMapLayout {
         guard !groups.isEmpty else { return (nodes, edges) }
 
         let count = CGFloat(groups.count)
-        let ringRadius = max(240, count * 62)
+        let ringRadius = max(300, count * 70)
         // How wide each group's fan of items may spread before it runs into its neighbours.
         let fanSpan = min(.pi * 0.95, (2 * .pi / count) * 0.92)
 
@@ -125,7 +125,7 @@ enum MindMapLayout {
             var remaining = group.items[...]
             var ring = 0
             while !remaining.isEmpty {
-                let distance = 175 + CGFloat(ring) * ringGap
+                let distance = 215 + CGFloat(ring) * ringGap
                 let capacity = max(1, Int((fanSpan * (ringRadius + distance) / ringRadius) * distance / itemSpacing))
                 let row = remaining.prefix(capacity)
                 remaining = remaining.dropFirst(row.count)
@@ -156,7 +156,13 @@ enum MindMapLayout {
         return (nodes, edges)
     }
 
-    static let palette: [Color] = [.orange, .blue, .green, .pink, .purple, .teal, .red, .indigo, .mint, .brown, .cyan, .yellow]
+    static let palette: [Color] = [
+        Color(red: 0.98, green: 0.45, blue: 0.29), Color(red: 0.25, green: 0.52, blue: 0.96),
+        Color(red: 0.16, green: 0.70, blue: 0.50), Color(red: 0.90, green: 0.32, blue: 0.62),
+        Color(red: 0.55, green: 0.38, blue: 0.95), Color(red: 0.08, green: 0.66, blue: 0.75),
+        Color(red: 0.95, green: 0.66, blue: 0.13), Color(red: 0.36, green: 0.42, blue: 0.86),
+        Color(red: 0.85, green: 0.25, blue: 0.30), Color(red: 0.42, green: 0.70, blue: 0.20),
+    ]
 
     static func color(_ index: Int) -> Color { palette[index % palette.count] }
 }
@@ -193,11 +199,34 @@ struct MindMapView: View {
 
         GeometryReader { geometry in
             let center = CGPoint(x: geometry.size.width / 2, y: geometry.size.height / 2)
+            let mapCenter = CGPoint(x: center.x + pan.width + panDrag.width, y: center.y + pan.height + panDrag.height)
             ZStack {
-                // Background catches pans and zooms.
-                Color.clear
-                    .contentShape(Rectangle())
-                    .gesture(panGesture)
+                // Background: soft glow at the center of the map and a dot grid that moves with it.
+                // It also catches pans and zooms.
+                ZStack {
+                    RadialGradient(colors: [Color.accentColor.opacity(0.10), .clear],
+                                   center: UnitPoint(x: mapCenter.x / max(geometry.size.width, 1),
+                                                     y: mapCenter.y / max(geometry.size.height, 1)),
+                                   startRadius: 0, endRadius: 520 * liveScale + 200)
+                    Canvas { context, size in
+                        let spacing = max(14, 30 * liveScale)
+                        let startX = mapCenter.x.truncatingRemainder(dividingBy: spacing) - spacing
+                        let startY = mapCenter.y.truncatingRemainder(dividingBy: spacing) - spacing
+                        let dot = max(1.2, 1.8 * min(liveScale, 1.2))
+                        var x = startX
+                        while x < size.width + spacing {
+                            var y = startY
+                            while y < size.height + spacing {
+                                context.fill(Path(ellipseIn: CGRect(x: x, y: y, width: dot, height: dot)),
+                                             with: .color(.secondary.opacity(0.22)))
+                                y += spacing
+                            }
+                            x += spacing
+                        }
+                    }
+                }
+                .contentShape(Rectangle())
+                .gesture(panGesture)
 
                 ZStack {
                     Canvas { context, _ in
@@ -205,15 +234,21 @@ struct MindMapView: View {
                             guard let a = positions[edge.from], let b = positions[edge.to] else { continue }
                             let start = CGPoint(x: center.x + a.x, y: center.y + a.y)
                             let end = CGPoint(x: center.x + b.x, y: center.y + b.y)
-                            var path = Path()
-                            path.move(to: start)
-                            path.addCurve(to: end,
-                                          control1: CGPoint(x: (start.x + end.x) / 2, y: start.y),
-                                          control2: CGPoint(x: (start.x + end.x) / 2, y: end.y))
-                            let color = edge.from == "root" ? Color.secondary : MindMapLayout.color(edge.colorIndex)
-                            context.stroke(path, with: .color(color.opacity(edge.isSecondary ? 0.35 : 0.6)),
-                                           style: StrokeStyle(lineWidth: edge.from == "root" ? 3 : (edge.isSecondary ? 1.2 : 2),
-                                                              lineCap: .round, dash: edge.isSecondary ? [5, 5] : []))
+                            let path = Self.branchPath(from: a, to: b, offset: center)
+                            let color = MindMapLayout.color(edge.colorIndex)
+                            let fromRoot = edge.from == "root"
+                            let width: CGFloat = fromRoot ? 6 : (edge.isSecondary ? 1.5 : 2.5)
+                            let gradient = GraphicsContext.Shading.linearGradient(
+                                Gradient(colors: [color.opacity(fromRoot ? 0.35 : 0.85), color.opacity(edge.isSecondary ? 0.25 : 0.55)]),
+                                startPoint: start, endPoint: end)
+                            if !edge.isSecondary {
+                                // Soft glow under the main branches.
+                                context.stroke(path, with: .color(color.opacity(0.12)),
+                                               style: StrokeStyle(lineWidth: width * 3, lineCap: .round))
+                            }
+                            context.stroke(path, with: gradient,
+                                           style: StrokeStyle(lineWidth: width, lineCap: .round,
+                                                              dash: edge.isSecondary ? [4, 6] : []))
                         }
                     }
                     .allowsHitTesting(false)
@@ -221,8 +256,9 @@ struct MindMapView: View {
                     ForEach(layout.nodes) { node in
                         if let p = positions[node.id] {
                             // Gesture goes before .position, which would otherwise make it cover the whole map.
-                            nodeView(node, groups: groups)
-                                .opacity(matchesHighlight(node) ? 1 : 0.25)
+                            nodeView(node, groups: groups, compact: liveScale < 0.42)
+                                .opacity(matchesHighlight(node) ? 1 : 0.2)
+                                .transition(.scale(scale: 0.6).combined(with: .opacity))
                                 .gesture(nodeDrag(node))
                                 .position(x: center.x + p.x, y: center.y + p.y)
                         }
@@ -284,40 +320,72 @@ struct MindMapView: View {
 
     // MARK: Nodes
 
+    /// A curved branch that leaves its parent heading outward from the center of the map.
+    static func branchPath(from a: CGPoint, to b: CGPoint, offset: CGPoint) -> Path {
+        let dx = b.x - a.x, dy = b.y - a.y
+        let length = max(1, (dx * dx + dy * dy).squareRoot())
+        // Outward direction at the parent: away from the map center, or straight at the child for the root.
+        let aLen = (a.x * a.x + a.y * a.y).squareRoot()
+        let out = aLen > 1 ? CGPoint(x: a.x / aLen, y: a.y / aLen) : CGPoint(x: dx / length, y: dy / length)
+        let c1 = CGPoint(x: a.x + out.x * length * 0.45, y: a.y + out.y * length * 0.45)
+        let c2 = CGPoint(x: b.x - dx * 0.25, y: b.y - dy * 0.25)
+        var path = Path()
+        path.move(to: CGPoint(x: offset.x + a.x, y: offset.y + a.y))
+        path.addCurve(to: CGPoint(x: offset.x + b.x, y: offset.y + b.y),
+                      control1: CGPoint(x: offset.x + c1.x, y: offset.y + c1.y),
+                      control2: CGPoint(x: offset.x + c2.x, y: offset.y + c2.y))
+        return path
+    }
+
     @ViewBuilder
-    private func nodeView(_ node: MapNode, groups: [MapGroup]) -> some View {
+    private func nodeView(_ node: MapNode, groups: [MapGroup], compact: Bool) -> some View {
         switch node.kind {
         case .root:
-            VStack(spacing: 4) {
-                Image(systemName: "brain.head.profile").font(.system(size: 30))
-                Text("My Brain").font(.headline)
-                Text("\(items.count) items").font(.caption).foregroundStyle(.secondary)
+            ZStack {
+                Circle()
+                    .fill(Color.accentColor.opacity(0.12))
+                    .frame(width: 196, height: 196)
+                Circle()
+                    .fill(LinearGradient(colors: [Color.accentColor, Color(red: 0.55, green: 0.38, blue: 0.95)],
+                                         startPoint: .topLeading, endPoint: .bottomTrailing))
+                    .frame(width: 156, height: 156)
+                    .shadow(color: Color.accentColor.opacity(0.45), radius: 22, y: 6)
+                VStack(spacing: 4) {
+                    Image(systemName: "brain.head.profile").font(.system(size: 36, weight: .medium))
+                    Text("My Brain").font(.title3.bold())
+                    Text("\(items.count) \(items.count == 1 ? "item" : "items")").font(.caption.weight(.medium)).opacity(0.85)
+                }
+                .foregroundStyle(.white)
             }
-            .frame(width: 130, height: 130)
-            .background(Circle().fill(Color.accentColor.opacity(0.18)))
-            .overlay(Circle().strokeBorder(Color.accentColor, lineWidth: 2))
+            .contentShape(Circle())
             .onTapGesture { withAnimation(.spring) { fit(groups: groups) } }
 
         case .group(let group):
             let color = MindMapLayout.color(node.colorIndex)
             let isOpen = expanded.contains(group.id)
-            HStack(spacing: 6) {
-                Image(systemName: group.symbol)
-                Text(group.title).lineLimit(1)
+            HStack(spacing: 8) {
+                Image(systemName: group.symbol).font(.subheadline.weight(.bold))
+                Text(group.title.capitalized).lineLimit(1)
                 Text("\(group.items.count)")
                     .font(.caption.bold())
-                    .padding(.horizontal, 6).padding(.vertical, 2)
-                    .background(color.opacity(0.25), in: Capsule())
-                Image(systemName: isOpen ? "chevron.down" : "chevron.right").font(.caption)
+                    .padding(.horizontal, 7).padding(.vertical, 3)
+                    .background(.white.opacity(0.25), in: Capsule())
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.bold))
+                    .rotationEffect(.degrees(isOpen ? 90 : 0))
             }
             .font(.headline)
-            .padding(.horizontal, 14).padding(.vertical, 10)
-            .background(color.opacity(0.18), in: Capsule())
-            .overlay(Capsule().strokeBorder(color, lineWidth: 2))
-            .frame(maxWidth: 260)
+            .foregroundStyle(.white)
+            .padding(.horizontal, 18).padding(.vertical, 12)
+            .background(
+                Capsule().fill(LinearGradient(colors: [color, color.opacity(0.78)], startPoint: .top, endPoint: .bottom))
+            )
+            .overlay(Capsule().strokeBorder(.white.opacity(0.35), lineWidth: 1))
+            .shadow(color: color.opacity(0.45), radius: 12, y: 5)
+            .frame(maxWidth: 280)
             .contentShape(Capsule())
             .onTapGesture {
-                withAnimation(.spring(duration: 0.35)) {
+                withAnimation(.spring(duration: 0.4, bounce: 0.25)) {
                     if isOpen { expanded.remove(group.id) } else { expanded.insert(group.id) }
                 }
             }
@@ -330,7 +398,16 @@ struct MindMapView: View {
 
         case .item(let item):
             NavigationLink(value: item.id) {
-                MapItemCard(item: item, color: MindMapLayout.color(node.colorIndex))
+                if compact {
+                    // Zoomed far out: show a dot so the shape of the map stays readable.
+                    Circle()
+                        .fill(MindMapLayout.color(node.colorIndex))
+                        .frame(width: 26, height: 26)
+                        .overlay(Image(systemName: item.kind.symbol).font(.system(size: 11, weight: .bold)).foregroundStyle(.white))
+                        .shadow(color: .black.opacity(0.15), radius: 2, y: 1)
+                } else {
+                    MapItemCard(item: item, color: MindMapLayout.color(node.colorIndex))
+                }
             }
             .buttonStyle(.plain)
             .contextMenu {
@@ -492,35 +569,65 @@ struct MindMapView: View {
 struct MapItemCard: View {
     let item: Item
     let color: Color
+    @State private var hovering = false
 
     var body: some View {
-        HStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: 0) {
             if let data = item.thumbnail, let image = PlatformImage(data: data) {
                 Image(platformImage: image)
                     .resizable().aspectRatio(contentMode: .fill)
-                    .frame(width: 34, height: 34)
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
-            } else {
-                Image(systemName: item.kind.symbol)
-                    .foregroundStyle(color)
-                    .frame(width: 34, height: 34)
-                    .background(color.opacity(0.15), in: RoundedRectangle(cornerRadius: 6))
+                    .frame(width: 188, height: 96)
+                    .clipped()
+                    .overlay {
+                        if item.kind == .video {
+                            Image(systemName: "play.circle.fill").font(.system(size: 30))
+                                .foregroundStyle(.white).shadow(radius: 3)
+                        }
+                    }
             }
-            VStack(alignment: .leading, spacing: 1) {
-                Text(item.displayTitle).font(.caption.weight(.semibold)).lineLimit(2)
-                if item.aiStatus == .processing || item.aiStatus == .pending {
-                    Text("Organizing…").font(.caption2).foregroundStyle(.secondary)
-                } else if let host = item.url?.host() {
-                    Text(host).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 5) {
+                    Image(systemName: item.kind.symbol)
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 18, height: 18)
+                        .background(color, in: RoundedRectangle(cornerRadius: 5))
+                    Text(item.url?.host() ?? item.kind.label.dropLast().description)
+                        .font(.caption2.weight(.medium))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                    Spacer(minLength: 0)
+                    if item.isFavorite { Image(systemName: "star.fill").font(.caption2).foregroundStyle(.yellow) }
+                    if item.aiStatus == .processing || item.aiStatus == .pending {
+                        ProgressView().controlSize(.mini)
+                    }
+                }
+                Text(item.displayTitle)
+                    .font(.footnote.weight(.semibold))
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                if item.thumbnail == nil, !item.summary.isEmpty {
+                    Text(item.summary)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
                 }
             }
-            Spacer(minLength: 0)
-            if item.isFavorite { Image(systemName: "star.fill").font(.caption2).foregroundStyle(.yellow) }
+            .padding(10)
         }
-        .padding(7)
-        .frame(width: 150)
-        .background(.background, in: RoundedRectangle(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(color.opacity(0.6), lineWidth: 1.5))
-        .shadow(color: .black.opacity(0.08), radius: 3, y: 1)
+        .frame(width: 188, alignment: .leading)
+        .background(.background, in: RoundedRectangle(cornerRadius: 14))
+        .overlay(alignment: .top) {
+            // Branch-coloured accent along the top edge.
+            UnevenRoundedRectangle(topLeadingRadius: 14, topTrailingRadius: 14)
+                .fill(color)
+                .frame(height: 4)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(color.opacity(hovering ? 0.9 : 0.3), lineWidth: hovering ? 2 : 1))
+        .shadow(color: .black.opacity(hovering ? 0.18 : 0.09), radius: hovering ? 10 : 5, y: hovering ? 5 : 2)
+        .scaleEffect(hovering ? 1.04 : 1)
+        .animation(.spring(duration: 0.25), value: hovering)
+        .onHover { hovering = $0 }
     }
 }
