@@ -26,7 +26,7 @@ struct RootView: View {
 
     var body: some View {
         ZStack {
-            MindMapView(selection: $selectedItem, highlight: search, focusRequest: $focusRequest)
+            KnowledgeWebView(selection: $selectedItem, highlight: search, focusRequest: $focusRequest)
                 .ignoresSafeArea(edges: .bottom)
 
             VStack(spacing: 0) {
@@ -44,12 +44,10 @@ struct RootView: View {
                     .allowsHitTesting(false)
             }
         }
-        .dropDestination(for: URL.self) { urls, _ in
-            for url in urls {
-                if url.isFileURL { librarian.addFile(url) } else { librarian.addLink(url) }
-            }
-            return !urls.isEmpty
-        } isTargeted: { isDropTargeted = $0 }
+        .onDrop(of: [.fileURL, .url, .movie, .image, .plainText], isTargeted: $isDropTargeted) { providers in
+            DropImporter.importProviders(providers, into: librarian)
+            return !providers.isEmpty
+        }
         .inspector(isPresented: panelShown) {
             NavigationStack {
                 panelContent

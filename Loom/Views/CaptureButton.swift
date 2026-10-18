@@ -92,8 +92,10 @@ struct PickedMovie: Transferable {
         FileRepresentation(contentType: .movie) { movie in
             SentTransferredFile(movie.url)
         } importing: { received in
-            let copy = FileManager.default.temporaryDirectory
-                .appendingPathComponent("\(UUID().uuidString)-\(received.file.lastPathComponent)")
+            // Unique folder, original file name, so the saved item keeps a readable title.
+            let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            let copy = folder.appendingPathComponent(received.file.lastPathComponent)
             try FileManager.default.copyItem(at: received.file, to: copy)
             return Self(url: copy)
         }
@@ -113,3 +115,61 @@ extension Image {
     init(platformImage: UIImage) { self.init(uiImage: platformImage) }
 }
 #endif
+
+/// Handles anything dropped on the main page: Finder files, web links, and photos,
+/// videos or text dragged out of other apps.
+enum DropImporter {
+    @MainActor
+    static func importProviders(_ providers: [NSItemProvider], into librarian: Librarian) {
+        for provider in providers {
+            if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier)
+                || provider.hasItemConformingToTypeIdentifier(UTType.url.identifier) {
+                _ = provider.loadObject(ofClass: URL.self) { url, _ in
+                    guard let url else { return }
+                    // Copy dropped files right away: the system may revoke access after this callback.
+                    let local = url.isFileURL ? copyToTemporary(url) : nil
+                    Task { @MainActor in
+                        if let local {
+                            librarian.addFile(local)
+                            try? FileManager.default.removeItem(at: local)
+                        } else if !url.isFileURL {
+                            librarian.addLink(url)
+                        }
+                    }
+                }
+            } else if provider.hasItemConformingToTypeIdentifier(UTType.movie.identifier) {
+                provider.loadFileRepresentation(forTypeIdentifier: UTType.movie.identifier) { url, _ in
+                    guard let url, let local = copyToTemporary(url) else { return }
+                    Task { @MainActor in
+                        librarian.addFile(local)
+                        try? FileManager.default.removeItem(at: local)
+                    }
+                }
+            } else if provider.hasItemConformingToTypeIdentifier(UTType.image.identifier) {
+                provider.loadDataRepresentation(forTypeIdentifier: UTType.image.identifier) { data, _ in
+                    guard let data, let jpeg = ContentExtractor.thumbnail(from: data, maxPixel: 4000) else { return }
+                    Task { @MainActor in librarian.addImage(jpeg) }
+                }
+            } else if provider.canLoadObject(ofClass: String.self) {
+                _ = provider.loadObject(ofClass: String.self) { text, _ in
+                    guard let text else { return }
+                    Task { @MainActor in librarian.addPasted(text) }
+                }
+            }
+        }
+    }
+
+    private static func copyToTemporary(_ url: URL) -> URL? {
+        let accessing = url.startAccessingSecurityScopedResource()
+        defer { if accessing { url.stopAccessingSecurityScopedResource() } }
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let copy = folder.appendingPathComponent(url.lastPathComponent)
+        do {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            try FileManager.default.copyItem(at: url, to: copy)
+            return copy
+        } catch {
+            return nil
+        }
+    }
+}
