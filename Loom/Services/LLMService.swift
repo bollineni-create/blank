@@ -186,6 +186,11 @@ final class LLMService {
     /// Downloads (if needed) and loads a model. Switching models unloads the previous one.
     func load(_ model: LocalModel) {
         if loadedModel == model, state == .ready { return }
+        #if targetEnvironment(simulator)
+        // llama.cpp can't run here, so don't download gigabytes only to fail.
+        state = .failed(LlamaError.unavailable.localizedDescription)
+        return
+        #endif
         selectedModel = model
         loadTask?.cancel()
         engine = nil
