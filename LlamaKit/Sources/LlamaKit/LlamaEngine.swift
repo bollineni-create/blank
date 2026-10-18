@@ -1,5 +1,7 @@
 import Foundation
+#if !targetEnvironment(simulator)
 import llama
+#endif
 
 public struct ChatTurn: Sendable {
     public var role: String
@@ -17,6 +19,7 @@ public enum LlamaError: LocalizedError {
     case templateFailed
     case tokenizeFailed
     case decodeFailed(Int32)
+    case unavailable
 
     public var errorDescription: String? {
         switch self {
@@ -25,9 +28,30 @@ public enum LlamaError: LocalizedError {
         case .templateFailed: "Couldn't format the prompt for this model."
         case .tokenizeFailed: "Couldn't read the prompt."
         case .decodeFailed(let code): "The model stopped unexpectedly (code \(code))."
+        case .unavailable: "Downloaded models don't run in the iOS Simulator. Use Apple Intelligence, or run Loom on a device."
         }
     }
 }
+
+#if targetEnvironment(simulator)
+
+/// llama.cpp has no iOS Simulator build, so on the simulator loading a model always fails
+/// and Loom relies on Apple's Foundation Models.
+public actor LlamaEngine {
+    public init(path: String, contextLength: Int, useGPU: Bool = true) throws {
+        throw LlamaError.unavailable
+    }
+
+    public nonisolated func stream(
+        _ messages: [ChatTurn],
+        maxTokens: Int,
+        temperature: Float
+    ) -> AsyncThrowingStream<String, Error> {
+        AsyncThrowingStream { $0.finish(throwing: LlamaError.unavailable) }
+    }
+}
+
+#else
 
 /// A loaded GGUF model running on the GPU through llama.cpp.
 /// All work happens on this actor, one generation at a time.
@@ -196,3 +220,5 @@ public actor LlamaEngine {
         return buffer.prefix(Int(max(0, n))).map { UInt8(bitPattern: $0) }
     }
 }
+
+#endif

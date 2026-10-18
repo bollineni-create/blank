@@ -5,6 +5,7 @@ options:
     iOS: "17.0"
     macOS: "14.0"
   createIntermediateGroups: true
+  preGenCommand: LlamaKit/fetch-llama.sh
 
 settings:
   base:

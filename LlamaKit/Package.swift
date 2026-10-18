@@ -2,7 +2,8 @@
 import PackageDescription
 
 // Prebuilt llama.cpp (GPU kernels already compiled in), so building the app
-// does not need Xcode's separate Metal toolchain download.
+// does not need Xcode's separate Metal toolchain download. fetch-llama.sh downloads it
+// and adds a stub iOS Simulator slice; `xcodegen generate` runs that script first.
 let package = Package(
     name: "LlamaKit",
     platforms: [.iOS(.v17), .macOS(.v14)],
@@ -12,8 +13,7 @@ let package = Package(
     targets: [
         .binaryTarget(
             name: "llama",
-            url: "https://github.com/ggml-org/llama.cpp/releases/download/b11565/llama-b11565-xcframework.zip",
-            checksum: "865afb6d9a535b93445dcf89acd3f64002d609909faeeca4da75d83d19620584"
+            path: "llama.xcframework"
         ),
         .target(name: "LlamaKit", dependencies: ["llama"]),
     ]
