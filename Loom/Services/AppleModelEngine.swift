@@ -93,6 +93,11 @@ enum AppleModelEngine {
                 }
             } catch let error as LanguageModelSession.GenerationError {
                 throw AppleModelError(error)
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                // Anything else comes from the system model service (for example ModelManager errors).
+                throw AppleModelError.notResponding
             }
             return text.trimmingCharacters(in: .whitespacesAndNewlines)
         }
@@ -113,6 +118,10 @@ enum AppleModelEngine {
                 return OrganizedFields(title: g.title, summary: g.summary, takeaways: g.takeaways, tags: g.tags)
             } catch let error as LanguageModelSession.GenerationError {
                 throw AppleModelError(error)
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                throw AppleModelError.notResponding
             }
         }
         #endif
@@ -123,6 +132,16 @@ enum AppleModelEngine {
 /// Calm, one-line versions of the Foundation Models errors.
 struct AppleModelError: LocalizedError {
     let message: String
+    /// The model itself isn't working right now (not a problem with this prompt): pause it and fall back.
+    var isRuntimeFailure = false
+
+    init(message: String, isRuntimeFailure: Bool) {
+        self.message = message
+        self.isRuntimeFailure = isRuntimeFailure
+    }
+
+    static let notResponding = AppleModelError(
+        message: "Apple Intelligence isn't responding right now. Loom will try again shortly.", isRuntimeFailure: true)
 
     #if canImport(FoundationModels)
     @available(iOS 26.0, macOS 26.0, *)
@@ -136,6 +155,7 @@ struct AppleModelError: LocalizedError {
             message = "Apple Intelligence doesn't support this language yet."
         case .assetsUnavailable:
             message = "The model is getting ready…"
+            isRuntimeFailure = true
         default:
             message = error.localizedDescription
         }

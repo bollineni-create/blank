@@ -57,6 +57,9 @@ struct AskView: View {
         }
         .background(Theme.background)
         .navigationTitle(conversation?.title ?? "Ask")
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
         .navigationDestination(for: UUID.self) { id in
             if let item = items.first(where: { $0.id == id }) { ItemDetailView(item: item) }
         }

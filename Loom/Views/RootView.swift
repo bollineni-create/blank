@@ -182,8 +182,8 @@ struct RootView: View {
                 .floatingChrome(Capsule())
                 // The soft violet → coral light behind search. A light, not a fill: text never sits on it.
                 .background(
-                    Theme.glow(radius: 220)
-                        .frame(width: 520, height: 200)
+                    Theme.glow(radius: 200)
+                        .frame(width: 400, height: 400)
                         .allowsHitTesting(false)
                 )
 
@@ -288,15 +288,23 @@ struct RootView: View {
 struct ModelStatusChip: View {
     @Environment(LLMService.self) private var llm
     @Environment(Librarian.self) private var librarian
+    #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var sizeClass
+    private var isCompact: Bool { sizeClass == .compact }
+    #else
+    private let isCompact = false
+    #endif
 
     var body: some View {
         HStack(spacing: Theme.Space.s8) {
             content
         }
+        .lineLimit(1)
+        .fixedSize()
         .font(.caption.weight(.medium))
         .foregroundStyle(Theme.label)
         .padding(.horizontal, Theme.Space.s12)
-        .frame(height: 44)
+        .frame(minWidth: 44, minHeight: 44, maxHeight: 44)
         .floatingChrome(Capsule())
         .help(llm.isReady ? (llm.activeModelName ?? "") : AIAvailabilityNotice.message(for: llm))
     }
@@ -305,7 +313,12 @@ struct ModelStatusChip: View {
     private var content: some View {
         if llm.isReady {
             Circle().fill(Theme.statusReady).frame(width: 8, height: 8)
-            Text(librarian.processingCount > 0 ? "Organizing \(librarian.processingCount)…" : (llm.activeModelName ?? "Ready"))
+            if librarian.processingCount > 0 {
+                Text("Organizing \(librarian.processingCount)…")
+            } else if !isCompact {
+                // On a narrow iPhone the dot alone says "ready"; the model name lives in Settings and the tooltip.
+                Text(llm.activeModelName ?? "Ready")
+            }
         } else {
             switch llm.state {
             case .downloading(let p):
@@ -313,7 +326,7 @@ struct ModelStatusChip: View {
                 Text("\(Int(p * 100))%").monospacedDigit()
             case .loading:
                 ProgressView().controlSize(.small)
-                Text("Loading model…")
+                if !isCompact { Text("Loading model…") }
             case .failed:
                 Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Theme.statusWarning)
                 Text("Model error")
@@ -329,10 +342,10 @@ struct ModelStatusChip: View {
         switch llm.appleAvailability {
         case .notReady where llm.preferAppleIntelligence:
             ProgressView().controlSize(.small)
-            Text("Getting ready…")
+            if !isCompact { Text("Getting ready…") }
         case .notEnabled:
             Circle().fill(Theme.labelTertiary).frame(width: 8, height: 8)
-            Text("Apple Intelligence off")
+            Text(isCompact ? "No model" : "Apple Intelligence off")
         default:
             Circle().fill(Theme.labelTertiary).frame(width: 8, height: 8)
             Text("No model")

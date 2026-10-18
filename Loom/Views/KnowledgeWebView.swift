@@ -44,6 +44,8 @@ final class WebSimulation {
     @ObservationIgnored var pillHalfSizes: [Int: CGSize] = [:]
     @ObservationIgnored private var alpha: CGFloat = 1
     @ObservationIgnored private var alphaTarget: CGFloat = 0
+    /// Set between reaching rest and the deferred `settled = true`, so the save happens once.
+    @ObservationIgnored private var settling = false
 
     private static let positionsKey = "web.positions"
 
@@ -158,11 +160,18 @@ final class WebSimulation {
     // MARK: Physics
 
     func tick() {
-        guard !settled else { return }
+        guard !settled, !settling else { return }
         step()
         if alpha < 0.004 && alphaTarget == 0 {
-            savePositions()
-            DispatchQueue.main.async { self.settled = true }
+            // tick() runs while a frame renders: defer both the observed change and the save,
+            // since writing UserDefaults mid-render re-triggers rendering (via @AppStorage) in a tight loop.
+            settling = true
+            DispatchQueue.main.async {
+                self.settling = false
+                guard self.alpha < 0.004 && self.alphaTarget == 0 else { return }
+                self.settled = true
+                self.savePositions()
+            }
         }
     }
 
@@ -739,11 +748,10 @@ struct KnowledgeWebView: View {
 
     private var legend: some View {
         HStack(spacing: Theme.Space.s12) {
-            ForEach(ItemKind.allCases) { kind in
-                HStack(spacing: Theme.Space.s4) {
-                    Image(systemName: kind.symbol).font(.caption2.weight(.medium))
-                    Text(kind.label).font(.caption2.weight(.medium))
-                }
+            // Names when there's room; symbols alone on a narrow iPhone.
+            ViewThatFits(in: .horizontal) {
+                kindKey(showNames: true)
+                kindKey(showNames: false)
             }
             Menu {
                 Toggle("Link Related Files", isOn: $linkSimilar)
@@ -764,6 +772,20 @@ struct KnowledgeWebView: View {
         .floatingChrome(Capsule())
         .padding(.leading, Theme.Space.s20)
         .padding(.top, 80)
+    }
+
+    private func kindKey(showNames: Bool) -> some View {
+        HStack(spacing: showNames ? Theme.Space.s12 : Theme.Space.s16) {
+            ForEach(ItemKind.allCases) { kind in
+                HStack(spacing: Theme.Space.s4) {
+                    Image(systemName: kind.symbol).font(.caption2.weight(.medium))
+                    if showNames { Text(kind.label).font(.caption2.weight(.medium)) }
+                }
+                .fixedSize()
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel(kind.label)
+            }
+        }
     }
 
     /// Shown when a concept is selected: what it is and a shortcut to add to it.

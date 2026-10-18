@@ -388,6 +388,10 @@ final class Librarian {
             item.aiVersion = Self.aiVersion
             item.aiStatus = .done
             setStage(item, .done, create: false)
+        } catch let error as AppleModelError where error.isRuntimeFailure && !llm.isReady {
+            // The model stopped responding: wait for it (or a downloaded model) instead of failing the item.
+            item.aiStatus = .pending
+            setStage(item, .waitingForModel, create: false)
         } catch {
             item.aiStatus = .failed
             setStage(item, .failed("Couldn't summarize; try Regenerate"), create: false)

@@ -128,13 +128,30 @@ final class LLMService {
 
     /// Re-reads Apple Intelligence availability. While the model is getting ready, checks again shortly.
     func refreshAppleAvailability() {
+        guard !applePaused else { return }
         appleAvailability = AppleModelEngine.availability
         availabilityRecheck?.cancel()
         guard appleAvailability == .notReady else { return }
-        availabilityRecheck = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(20))
+        scheduleAvailabilityRecheck(after: 20)
+    }
+
+    /// Set after Apple's model fails at runtime even though the system reported it available.
+    private var applePaused = false
+
+    /// Treats Apple's model as "getting ready" for a minute, so work falls back or waits instead of failing over and over.
+    private func pauseAppleModel() {
+        applePaused = true
+        appleAvailability = .notReady
+        scheduleAvailabilityRecheck(after: 60)
+    }
+
+    private func scheduleAvailabilityRecheck(after seconds: Int) {
+        availabilityRecheck?.cancel()
+        availabilityRecheck = Task {
+            try? await Task.sleep(for: .seconds(seconds))
             guard !Task.isCancelled else { return }
-            self?.refreshAppleAvailability()
+            self.applePaused = false
+            self.refreshAppleAvailability()
         }
     }
 
@@ -218,9 +235,20 @@ final class LLMService {
         while isGenerating { try await Task.sleep(for: .milliseconds(150)) }
         if usesAppleModel {
             isGenerating = true
-            defer { isGenerating = false }
-            return try await AppleModelEngine.generate(
-                system: system, prompt: prompt, maxTokens: maxTokens, temperature: temperature, onToken: onToken)
+            do {
+                let answer = try await AppleModelEngine.generate(
+                    system: system, prompt: prompt, maxTokens: maxTokens, temperature: temperature, onToken: onToken)
+                isGenerating = false
+                return answer
+            } catch let error as AppleModelError where error.isRuntimeFailure {
+                isGenerating = false
+                pauseAppleModel()
+                // Fall back to a downloaded model when one is loaded; otherwise say so calmly.
+                guard engine != nil, loadedModel != nil else { throw error }
+            } catch {
+                isGenerating = false
+                throw error
+            }
         }
         guard let engine, let model = loadedModel else { throw LLMError.notReady }
         isGenerating = true
@@ -246,7 +274,12 @@ final class LLMService {
         guard usesAppleModel else { throw LLMError.notReady }
         isGenerating = true
         defer { isGenerating = false }
-        return try await AppleModelEngine.organize(prompt, instructions: instructions)
+        do {
+            return try await AppleModelEngine.organize(prompt, instructions: instructions)
+        } catch let error as AppleModelError where error.isRuntimeFailure {
+            pauseAppleModel()
+            throw error
+        }
     }
 
     /// Hides any `<think>…</think>` reasoning a model emits.
