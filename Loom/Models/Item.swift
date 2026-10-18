@@ -38,28 +38,31 @@ enum AIStatus: String, Codable {
 /// One thing in your second brain: a note, a link, an image, a PDF or any file.
 @Model
 final class Item {
-    @Attribute(.unique) var id: UUID
-    var kindRaw: String
-    var title: String
+    // iCloud sync (CloudKit) needs every property to have a default and allows no unique constraints.
+    var id: UUID = UUID()
+    var kindRaw: String = ItemKind.note.rawValue
+    var title: String = ""
     /// What the user typed (the note itself, or their comment on a link/file).
-    var body: String
+    var body: String = ""
     var urlString: String?
     /// Text pulled out of the content: page text, OCR, PDF text.
-    var extractedText: String
+    var extractedText: String = ""
     /// The main finding or lesson, in a few sentences.
-    var summary: String
+    var summary: String = ""
     /// Short, specific lessons, facts or action items worth remembering.
     var takeaways: [String] = []
     /// Which version of the AI prompt last processed this item (older ones get redone).
     var aiVersion: Int = 0
-    var tags: [String]
-    var createdAt: Date
-    var updatedAt: Date
-    var isFavorite: Bool
-    /// File name inside the app's attachments folder.
+    var tags: [String] = []
+    var createdAt: Date = Date.now
+    var updatedAt: Date = Date.now
+    var isFavorite: Bool = false
+    /// File name inside the app's attachments folder (this device's copy).
     var attachmentName: String?
+    /// The attachment's bytes, so iCloud carries the file to your other devices.
+    @Attribute(.externalStorage) var attachmentData: Data?
     @Attribute(.externalStorage) var thumbnail: Data?
-    var aiStatusRaw: String
+    var aiStatusRaw: String = AIStatus.pending.rawValue
     /// Packed `[Float]` sentence embedding used for semantic search.
     @Attribute(.externalStorage) var embedding: Data?
 
@@ -104,7 +107,15 @@ final class Item {
 
     var url: URL? { urlString.flatMap(URL.init(string:)) }
 
-    var attachmentURL: URL? { attachmentName.map(AttachmentStore.url(for:)) }
+    /// This device's copy of the attachment. An item that arrived through iCloud gets its file written on first use.
+    var attachmentURL: URL? {
+        guard let attachmentName else { return nil }
+        let url = AttachmentStore.url(for: attachmentName)
+        if let attachmentData, !FileManager.default.fileExists(atPath: url.path) {
+            try? attachmentData.write(to: url, options: .atomic)
+        }
+        return url
+    }
 
     var displayTitle: String {
         if !title.isEmpty { return title }
@@ -145,11 +156,11 @@ final class Item {
 /// A user-made collection, like a folder.
 @Model
 final class Space {
-    @Attribute(.unique) var id: UUID
-    var name: String
-    var emoji: String
-    var createdAt: Date
-    @Relationship(deleteRule: .nullify, inverse: \Item.space) var items: [Item]
+    var id: UUID = UUID()
+    var name: String = ""
+    var emoji: String = "📁"
+    var createdAt: Date = Date.now
+    @Relationship(deleteRule: .nullify, inverse: \Item.space) var items: [Item]? = []
 
     init(name: String, emoji: String = "📁") {
         self.id = UUID()
@@ -163,10 +174,10 @@ final class Space {
 /// A saved "Ask" conversation.
 @Model
 final class Conversation {
-    @Attribute(.unique) var id: UUID
-    var title: String
-    var createdAt: Date
-    @Relationship(deleteRule: .cascade, inverse: \ChatMessage.conversation) var messages: [ChatMessage]
+    var id: UUID = UUID()
+    var title: String = "New chat"
+    var createdAt: Date = Date.now
+    @Relationship(deleteRule: .cascade, inverse: \ChatMessage.conversation) var messages: [ChatMessage]? = []
 
     init(title: String = "New chat") {
         self.id = UUID()
@@ -175,17 +186,17 @@ final class Conversation {
         self.messages = []
     }
 
-    var sortedMessages: [ChatMessage] { messages.sorted { $0.createdAt < $1.createdAt } }
+    var sortedMessages: [ChatMessage] { (messages ?? []).sorted { $0.createdAt < $1.createdAt } }
 }
 
 @Model
 final class ChatMessage {
-    @Attribute(.unique) var id: UUID
-    var isUser: Bool
-    var text: String
-    var createdAt: Date
+    var id: UUID = UUID()
+    var isUser: Bool = false
+    var text: String = ""
+    var createdAt: Date = Date.now
     /// IDs of the items the answer was based on.
-    var sourceIDs: [UUID]
+    var sourceIDs: [UUID] = []
     var conversation: Conversation?
 
     init(isUser: Bool, text: String, sourceIDs: [UUID] = []) {

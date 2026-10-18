@@ -195,6 +195,7 @@ final class Librarian {
     func addImage(_ data: Data, fileExtension: String = "jpg", space: Space? = nil) {
         guard let name = try? AttachmentStore.save(data, fileExtension: fileExtension) else { return }
         let item = Item(kind: .image, attachmentName: name, thumbnail: ContentExtractor.thumbnail(from: data), space: space)
+        item.attachmentData = data
         item.aiStatus = .processing
         insert(item, organize: false)
         setStage(item, .reading("Reading text in the image…"))
@@ -234,6 +235,7 @@ final class Librarian {
             }
             item.attachmentName = name
             let stored = AttachmentStore.url(for: name)
+            item.attachmentData = try? Data(contentsOf: stored, options: .mappedIfSafe)
             switch kind {
             case .pdf:
                 item.thumbnail = ContentExtractor.pdfThumbnail(stored)
@@ -346,6 +348,26 @@ final class Librarian {
         for item in items where item.aiStatus != .processing { item.aiStatus = .pending }
         try? context?.save()
         runQueue()
+    }
+
+    /// Items saved before iCloud sync kept their files only on this device. Copies each file into
+    /// the library, one at a time, so iCloud can carry it to your other devices.
+    func backfillAttachmentsForSync() {
+        guard let context else { return }
+        let ids = ((try? context.fetch(FetchDescriptor<Item>(predicate: #Predicate { $0.attachmentName != nil && $0.attachmentData == nil }))) ?? [])
+            .map(\.persistentModelID)
+        guard !ids.isEmpty else { return }
+        Task {
+            for id in ids {
+                guard let item = context.model(for: id) as? Item, let name = item.attachmentName,
+                      item.attachmentData == nil else { continue }
+                let url = AttachmentStore.url(for: name)
+                guard FileManager.default.fileExists(atPath: url.path) else { continue }
+                item.attachmentData = try? Data(contentsOf: url, options: .mappedIfSafe)
+                try? context.save()
+                await Task.yield()
+            }
+        }
     }
 
     /// Queues items organized by an older prompt so they get takeaways too.
