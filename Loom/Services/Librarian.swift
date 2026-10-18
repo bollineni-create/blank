@@ -20,6 +20,12 @@ final class Librarian {
 
     private(set) var processingCount = 0
     private var queueRunning = false
+    /// Background work adding each item (copying, fetching, reading), so it can be cancelled.
+    private var addTasks: [UUID: Task<Void, Never>] = [:]
+    /// The item the AI is organizing right now.
+    private var organizing: (id: UUID, task: Task<Void, Never>)?
+    /// Cancelled items, so late stage updates don't bring them back into the list.
+    private var cancelledIDs: Set<UUID> = []
 
     // MARK: Upload activity (what the uploads tray shows)
 
@@ -56,6 +62,26 @@ final class Librarian {
             default: false
             }
         }
+
+        /// Copying a file in or reading text out of it.
+        var isAdding: Bool {
+            switch self {
+            case .copying, .reading: true
+            default: false
+            }
+        }
+
+        /// Rough share of the work done, for the mini progress bars.
+        var progress: Double {
+            switch self {
+            case .copying: 0.1
+            case .reading: 0.35
+            case .waitingForModel: 0.5
+            case .queued: 0.55
+            case .summarizing: 0.8
+            case .done, .failed: 1
+            }
+        }
     }
 
     struct Activity: Identifiable, Equatable {
@@ -63,6 +89,8 @@ final class Librarian {
         var title: String
         var symbol: String
         var stage: Stage
+        /// Placeholders stand for work that has no item yet (e.g. pulling a video out of Photos) and can't be cancelled.
+        var isPlaceholder = false
     }
 
     /// Newest first. Finished entries fade out after a few seconds.
@@ -80,6 +108,7 @@ final class Librarian {
     }
 
     private func setStage(id: UUID, title: String, symbol: String, _ stage: Stage, create: Bool = true) {
+        guard !cancelledIDs.contains(id) else { return }
         if let i = activities.firstIndex(where: { $0.id == id }) {
             activities[i].stage = stage
             activities[i].title = title
@@ -100,6 +129,7 @@ final class Librarian {
     func startPlaceholder(_ title: String, symbol: String) -> UUID {
         let id = UUID()
         setStage(id: id, title: title, symbol: symbol, .copying)
+        if let i = activities.firstIndex(where: { $0.id == id }) { activities[i].isPlaceholder = true }
         return id
     }
 
@@ -146,7 +176,7 @@ final class Librarian {
         item.aiStatus = .processing
         insert(item, organize: false)
         setStage(item, .reading("Fetching the page…"))
-        Task {
+        addTasks[item.id] = Task {
             do {
                 let content = try await ContentExtractor.fetchLink(url)
                 if !content.title.isEmpty { item.title = content.title }
@@ -155,6 +185,7 @@ final class Librarian {
             } catch {
                 // Offline or blocked: keep the link; it can be re-fetched later.
             }
+            if discardIfCancelled(item) { return }
             item.aiStatus = .pending
             finishAdding(item)
         }
@@ -167,8 +198,9 @@ final class Librarian {
         item.aiStatus = .processing
         insert(item, organize: false)
         setStage(item, .reading("Reading text in the image…"))
-        Task {
+        addTasks[item.id] = Task {
             item.extractedText = await ContentExtractor.recognizeText(in: data)
+            if discardIfCancelled(item) { return }
             item.aiStatus = .pending
             finishAdding(item)
         }
@@ -188,10 +220,13 @@ final class Librarian {
         insert(item, organize: false)
         setStage(id: item.id, title: url.lastPathComponent, symbol: kind.symbol, .copying)
 
-        Task {
+        addTasks[item.id] = Task {
             let name = await Task.detached(priority: .userInitiated) { try? AttachmentStore.importFile(at: url) }.value
             if removeSourceWhenDone { try? FileManager.default.removeItem(at: url) }
+            if let name, Task.isCancelled { item.attachmentName = name }
+            if discardIfCancelled(item) { return }
             guard let name else {
+                addTasks[item.id] = nil
                 item.aiStatus = .failed
                 setStage(item, .failed("Couldn't copy \(url.lastPathComponent)"))
                 try? context?.save()
@@ -215,6 +250,7 @@ final class Librarian {
                 setStage(item, .reading("Reading the file…"))
                 item.extractedText = await ContentExtractor.text(fromFile: stored)
             }
+            if discardIfCancelled(item) { return }
             item.aiStatus = .pending
             finishAdding(item)
         }
@@ -232,6 +268,48 @@ final class Librarian {
         if !read.screenText.isEmpty { text += "\n\n\(Item.screenTextHeading)\n" + read.screenText }
         item.extractedText = text
         return read.speechProblem
+    }
+
+    // MARK: Cancelling
+
+    /// Stops work on an item. One still being added is removed from the library;
+    /// one waiting for or in the AI keeps what it has and isn't summarized.
+    func cancel(_ id: UUID) {
+        guard activities.first(where: { $0.id == id })?.isPlaceholder != true else { return }
+        cancelledIDs.insert(id)
+        activities.removeAll { $0.id == id }
+        if let task = addTasks[id] {
+            task.cancel()  // The add task removes the item at its next step.
+            return
+        }
+        if let organizing, organizing.id == id {
+            organizing.task.cancel()
+        } else if let item = try? context?.fetch(FetchDescriptor<Item>(predicate: #Predicate { $0.id == id })).first,
+                  item.aiStatus == .pending {
+            item.aiStatus = .skipped
+            try? context?.save()
+        }
+        cancelledIDs.remove(id)
+    }
+
+    /// Cancels everything in the list and every item still waiting for the AI.
+    func cancelAll() {
+        for activity in activities where !activity.stage.isFinished { cancel(activity.id) }
+        let pending = AIStatus.pending.rawValue
+        for item in (try? context?.fetch(FetchDescriptor<Item>(predicate: #Predicate { $0.aiStatusRaw == pending }))) ?? [] {
+            item.aiStatus = .skipped
+        }
+        organizing?.task.cancel()
+        try? context?.save()
+    }
+
+    /// Ends an add that was cancelled: the half-added item and its file are removed.
+    private func discardIfCancelled(_ item: Item) -> Bool {
+        addTasks[item.id] = nil
+        guard cancelledIDs.contains(item.id) else { return false }
+        cancelledIDs.remove(item.id)
+        delete(item)
+        return true
     }
 
     func delete(_ item: Item) {
@@ -321,7 +399,10 @@ final class Librarian {
                 let count = (try? context.fetchCount(FetchDescriptor<Item>(predicate: #Predicate { $0.aiStatusRaw == pending }))) ?? 0
                 processingCount = count
                 guard let item = try? context.fetch(descriptor).first else { break }
-                await organize(item)
+                let work = Task { await organize(item) }
+                organizing = (item.id, work)
+                await work.value
+                organizing = nil
             }
         }
     }
@@ -417,6 +498,10 @@ final class Librarian {
             item.aiVersion = Self.aiVersion
             item.aiStatus = .done
             setStage(item, .done, create: false)
+        } catch where Task.isCancelled || error is CancellationError {
+            // Cancelled from the activity list: keep what the item had and don't summarize it.
+            item.aiStatus = .skipped
+            activities.removeAll { $0.id == item.id }
         } catch let error as AppleModelError where error.isRuntimeFailure && !llm.isReady {
             // The model stopped responding: wait for it (or a downloaded model) instead of failing the item.
             item.aiStatus = .pending

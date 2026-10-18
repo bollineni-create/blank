@@ -267,23 +267,28 @@ enum ContentExtractor {
         request.requiresOnDeviceRecognition = true
         request.shouldReportPartialResults = false
         request.addsPunctuation = true
-        let text = await withCheckedContinuation { (continuation: CheckedContinuation<String, Never>) in
-            let lock = NSLock()
-            var finished = false
-            func finish(_ value: String) {
-                lock.lock()
-                defer { lock.unlock() }
-                guard !finished else { return }
-                finished = true
-                continuation.resume(returning: value)
-            }
-            recognizer.recognitionTask(with: request) { result, error in
-                if let result, result.isFinal {
-                    finish(result.bestTranscription.formattedString)
-                } else if error != nil {
-                    finish("")
+        let running = RecognitionHandle()
+        let text = await withTaskCancellationHandler {
+            await withCheckedContinuation { (continuation: CheckedContinuation<String, Never>) in
+                let lock = NSLock()
+                var finished = false
+                func finish(_ value: String) {
+                    lock.lock()
+                    defer { lock.unlock() }
+                    guard !finished else { return }
+                    finished = true
+                    continuation.resume(returning: value)
+                }
+                running.task = recognizer.recognitionTask(with: request) { result, error in
+                    if let result, result.isFinal {
+                        finish(result.bestTranscription.formattedString)
+                    } else if error != nil {
+                        finish("")
+                    }
                 }
             }
+        } onCancel: {
+            running.task?.cancel()  // Ends with an error, which finishes the wait above.
         }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? ("", "No speech was found in this video.") : (String(trimmed.prefix(40_000)), nil)
@@ -298,7 +303,7 @@ enum ContentExtractor {
         generator.maximumSize = CGSize(width: 1280, height: 1280)
         var seen = Set<String>()
         var lines: [String] = []
-        for i in 0..<frames {
+        for i in 0..<frames where !Task.isCancelled {
             // Spread samples across the video, skipping the very start and end.
             let time = CMTime(seconds: duration.seconds * (Double(i) + 0.5) / Double(frames), preferredTimescale: 600)
             guard let frame = try? await generator.image(at: time) else { continue }
@@ -318,4 +323,9 @@ enum ContentExtractor {
             ? String(format: "%d:%02d:%02d", total / 3600, total / 60 % 60, total % 60)
             : String(format: "%d:%02d", total / 60, total % 60)
     }
+}
+
+/// Lets a cancelled caller stop a speech recognition task started inside a continuation.
+private final class RecognitionHandle: @unchecked Sendable {
+    var task: SFSpeechRecognitionTask?
 }

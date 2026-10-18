@@ -36,6 +36,9 @@ enum Theme {
 
     static let statusReady = Color(light: 0x34c759, dark: 0x30d158)
     static let statusWarning = Color(light: 0xff9500, dark: 0xff9f0a)
+    /// Activity dot: orange while the AI is working, red while files are being added.
+    static let statusBusy = statusWarning
+    static let statusUploading = Color(light: 0xff3b30, dark: 0xff453a)
     static let favorite = Color(light: 0xffcc00, dark: 0xffd60a)
     static let destructive = Color(light: 0xff3b30, dark: 0xff453a)
 

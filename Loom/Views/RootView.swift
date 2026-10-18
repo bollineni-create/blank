@@ -39,6 +39,7 @@ struct RootView: View {
         }
         .background(Theme.background)
         .tint(Theme.accent)
+        #if os(macOS)
         .overlay(alignment: .topTrailing) {
             UploadsTray { id in
                 selectedItem = id
@@ -47,6 +48,7 @@ struct RootView: View {
             .padding(.top, 74)
             .padding(.trailing, Theme.Space.s20)
         }
+        #endif
         .overlay {
             if isDropTargeted {
                 ZStack {
@@ -220,7 +222,15 @@ struct RootView: View {
 
             ChromeGroup {
                 HStack(spacing: Theme.Space.s8) {
+                    #if os(iOS)
+                    // On iPhone and iPad the status is one coloured dot; its panel lists each file's progress.
+                    ActivityDot { id in
+                        selectedItem = id
+                        focusRequest = id
+                    }
+                    #else
                     ModelStatusChip()
+                    #endif
                     Button { showingSettings = true } label: {
                         Image(systemName: "gearshape")
                             .font(.body.weight(.medium))
