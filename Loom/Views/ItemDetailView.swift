@@ -47,24 +47,41 @@ struct ItemDetailView: View {
                 }
             }
 
+            Section {
+                if item.summary.isEmpty && item.takeaways.isEmpty {
+                    Text(statusText).foregroundStyle(.secondary)
+                } else {
+                    if !item.summary.isEmpty {
+                        Text(item.summary)
+                            .font(.body.weight(.medium))
+                            .textSelection(.enabled)
+                    }
+                    if !item.takeaways.isEmpty {
+                        VStack(alignment: .leading, spacing: 10) {
+                            ForEach(Array(item.takeaways.enumerated()), id: \.offset) { _, lesson in
+                                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                                    Image(systemName: "lightbulb.fill")
+                                        .font(.caption)
+                                        .foregroundStyle(.yellow)
+                                    Text(lesson).textSelection(.enabled)
+                                }
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    }
+                }
+                Button { librarian.reorganize(item) } label: {
+                    Label(item.summary.isEmpty ? "Summarize with AI" : "Regenerate", systemImage: "sparkles")
+                }
+                .disabled(item.aiStatus == .processing)
+            } header: {
+                Label("What to take away", systemImage: "sparkles")
+            }
+
             Section(item.kind == .note ? "Note" : "Your notes") {
                 TextEditor(text: $item.body)
                     .frame(minHeight: item.kind == .note ? 240 : 90)
                     .font(.body)
-            }
-
-            Section {
-                if item.summary.isEmpty {
-                    Text(statusText).foregroundStyle(.secondary)
-                } else {
-                    Text(item.summary).textSelection(.enabled)
-                }
-                Button { librarian.reorganize(item) } label: {
-                    Label(item.summary.isEmpty ? "Organize with AI" : "Regenerate", systemImage: "sparkles")
-                }
-                .disabled(item.aiStatus == .processing)
-            } header: {
-                Text("AI summary")
             }
 
             Section("Tags") {
@@ -141,7 +158,7 @@ struct ItemDetailView: View {
         case .processing: "Reading and organizing…"
         case .failed: "The model couldn't organize this item. Try again."
         case .skipped: "Auto-organize is off."
-        case .done: "No summary."
+        case .done: "Nothing to summarize yet."
         }
     }
 }

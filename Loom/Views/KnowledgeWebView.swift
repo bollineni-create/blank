@@ -529,6 +529,7 @@ struct KnowledgeWebView: View {
             case .item(let id):
                 guard let item = byID[id] else { continue }
                 if item.displayTitle.lowercased().contains(query) || item.summary.lowercased().contains(query)
+                    || item.takeaways.contains(where: { $0.lowercased().contains(query) })
                     || item.body.lowercased().contains(query) || item.tags.contains(where: { $0.contains(query) }) {
                     result.insert(i)
                 }
@@ -754,8 +755,16 @@ struct MapItemCard: View {
                 Text(item.displayTitle)
                     .font(.footnote.weight(.semibold))
                     .lineLimit(2)
-                if !item.preview.isEmpty {
+                if !item.summary.isEmpty {
+                    Text(item.summary).font(.caption2).foregroundStyle(.secondary).lineLimit(3)
+                } else if !item.preview.isEmpty {
                     Text(item.preview).font(.caption2).foregroundStyle(.secondary).lineLimit(3)
+                }
+                ForEach(Array(item.takeaways.prefix(2).enumerated()), id: \.offset) { _, lesson in
+                    HStack(alignment: .firstTextBaseline, spacing: 4) {
+                        Image(systemName: "lightbulb.fill").font(.system(size: 8)).foregroundStyle(.yellow)
+                        Text(lesson).font(.caption2).lineLimit(2)
+                    }
                 }
                 if !item.tags.isEmpty {
                     Text(item.tags.prefix(4).map { "#\($0)" }.joined(separator: " "))

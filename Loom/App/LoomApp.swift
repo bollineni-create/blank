@@ -63,6 +63,7 @@ struct LoomApp: App {
             for item in stuck { item.aiStatus = .pending }
             try? context.save()
         }
+        librarian.upgradeOldSummaries()
         llm.loadSelectedIfDownloaded()
     }
 }

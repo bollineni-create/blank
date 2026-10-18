@@ -95,7 +95,9 @@ final class Librarian {
                 let info = await ContentExtractor.videoInfo(stored)
                 item.thumbnail = info.thumbnail
                 let length = ContentExtractor.formatDuration(info.duration)
+                let transcript = await ContentExtractor.transcribe(stored)
                 item.extractedText = "Video \(title)" + (length.isEmpty ? "" : ", \(length) long")
+                    + (transcript.isEmpty ? "" : "\n\nTranscript:\n" + transcript)
             } else {
                 item.extractedText = await ContentExtractor.text(fromFile: stored)
             }
@@ -129,6 +131,24 @@ final class Librarian {
         for item in items where item.aiStatus == .skipped || item.aiStatus == .failed { item.aiStatus = .pending }
         try? context?.save()
         runQueue()
+    }
+
+    /// Redoes the summary and takeaways for every item.
+    func reorganizeAll() {
+        guard let items = try? context?.fetch(FetchDescriptor<Item>()) else { return }
+        for item in items where item.aiStatus != .processing { item.aiStatus = .pending }
+        try? context?.save()
+        runQueue()
+    }
+
+    /// Queues items organized by an older prompt so they get takeaways too.
+    func upgradeOldSummaries() {
+        let done = AIStatus.done.rawValue
+        let current = Self.aiVersion
+        let old = (try? context?.fetch(FetchDescriptor<Item>(predicate: #Predicate { $0.aiStatusRaw == done && $0.aiVersion < current }))) ?? []
+        guard !old.isEmpty else { return }
+        for item in old { item.aiStatus = .pending }
+        try? context?.save()
     }
 
     // MARK: AI queue
@@ -166,9 +186,13 @@ final class Librarian {
         }
     }
 
+    /// Bump when the organizing prompt changes; items made with older versions are redone.
+    static let aiVersion = 2
+
     private struct Organized: Decodable {
         var title: String?
         var summary: String?
+        var takeaways: [String]?
         var tags: [String]?
     }
 
@@ -181,7 +205,7 @@ final class Librarian {
         }
         let existing = topTags(limit: 30).joined(separator: ", ")
         let prompt = """
-        Organize this saved \(item.kind.rawValue) for a personal knowledge library.
+        Read this saved \(item.kind.rawValue) from a personal knowledge library and capture what is worth remembering from it.
 
         CONTENT:
         \"\"\"
@@ -189,13 +213,14 @@ final class Librarian {
         \"\"\"
 
         Respond with only a JSON object, no other text:
-        {"title": "short descriptive title, at most 8 words", "summary": "1-3 sentence summary of what this is and why it matters", "tags": ["2 to 5 short lowercase topic tags"]}
+        {"title": "short descriptive title, at most 8 words", "summary": "2-3 sentences stating the main finding, argument or lesson: what the reader should learn or remember, not a description of the document", "takeaways": ["3 to 5 short, specific lessons, facts, numbers or action items from the content, each one sentence"], "tags": ["2 to 5 short lowercase topic tags"]}
+        If the content is too thin to learn from, keep takeaways to what it actually says.
         \(existing.isEmpty ? "" : "Prefer reusing these existing tags when they fit: \(existing)")
         """
         do {
             let reply = try await llm.generate(
                 system: "You are a precise librarian. You only ever reply with valid JSON.",
-                prompt: prompt, maxTokens: 300, temperature: 0.2)
+                prompt: prompt, maxTokens: 550, temperature: 0.2)
             guard let parsed = Self.parseJSON(reply) else {
                 item.aiStatus = .failed
                 try? context?.save()
@@ -207,12 +232,20 @@ final class Librarian {
                 item.title = title
             }
             if let summary = parsed.summary { item.summary = summary.trimmingCharacters(in: .whitespacesAndNewlines) }
+            if let takeaways = parsed.takeaways {
+                item.takeaways = takeaways
+                    .map { $0.trimmingCharacters(in: CharacterSet(charactersIn: "-•* ").union(.whitespacesAndNewlines)) }
+                    .filter { !$0.isEmpty }
+                    .prefix(6).map { $0 }
+            }
             if let tags = parsed.tags {
                 let cleaned = tags.map { $0.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "# ").union(.whitespacesAndNewlines)) }
                     .filter { !$0.isEmpty && $0.count < 30 }
                 item.tags = Array(NSOrderedSet(array: item.tags + cleaned)).compactMap { $0 as? String }.prefix(8).map { $0 }
             }
-            item.embedding = SearchIndex.pack(SearchIndex.embed(item.fullText + "\n" + item.summary + "\n" + item.tags.joined(separator: " ")))
+            item.embedding = SearchIndex.pack(SearchIndex.embed(
+                item.fullText + "\n" + item.summary + "\n" + item.takeaways.joined(separator: "\n") + "\n" + item.tags.joined(separator: " ")))
+            item.aiVersion = Self.aiVersion
             item.aiStatus = .done
         } catch {
             item.aiStatus = .failed

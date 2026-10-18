@@ -21,6 +21,8 @@ struct SettingsView: View {
                 Toggle("Auto-organize new items", isOn: $bindableLibrarian.autoOrganize)
                 Button("Organize all unprocessed items") { librarian.organizeAllUnprocessed() }
                     .disabled(!llm.isReady)
+                Button("Redo summaries & takeaways for everything") { librarian.reorganizeAll() }
+                    .disabled(!llm.isReady)
                 LabeledContent("Items", value: "\(items.count)")
                 LabeledContent("Organized", value: "\(items.filter { $0.aiStatus == .done }.count)")
             }

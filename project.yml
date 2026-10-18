@@ -33,6 +33,7 @@ targetTemplates:
         INFOPLIST_KEY_CFBundleDisplayName: Loom
         INFOPLIST_KEY_NSPhotoLibraryUsageDescription: Loom imports photos you choose so it can read and organize them.
         INFOPLIST_KEY_NSCameraUsageDescription: Loom can capture photos and documents into your library.
+        INFOPLIST_KEY_NSSpeechRecognitionUsageDescription: Loom transcribes the videos you save, on this device, so it can summarize what they teach.
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
 
 targets:

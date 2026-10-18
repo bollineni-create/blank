@@ -200,6 +200,7 @@ struct AskView: View {
             for (i, item) in sources.enumerated() {
                 let date = item.createdAt.formatted(date: .abbreviated, time: .omitted)
                 var text = item.summary.isEmpty ? "" : "Summary: \(item.summary)\n"
+                if !item.takeaways.isEmpty { text += "Takeaways: " + item.takeaways.joined(separator: " | ") + "\n" }
                 text += String(item.fullText.prefix(perItem))
                 if !item.tags.isEmpty { text += "\nTags: \(item.tags.joined(separator: ", "))" }
                 out += "[\(i + 1)] \(item.displayTitle) (\(item.kind.rawValue), saved \(date))\n\(text)\n\n"

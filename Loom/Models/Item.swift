@@ -46,7 +46,12 @@ final class Item {
     var urlString: String?
     /// Text pulled out of the content: page text, OCR, PDF text.
     var extractedText: String
+    /// The main finding or lesson, in a few sentences.
     var summary: String
+    /// Short, specific lessons, facts or action items worth remembering.
+    var takeaways: [String] = []
+    /// Which version of the AI prompt last processed this item (older ones get redone).
+    var aiVersion: Int = 0
     var tags: [String]
     var createdAt: Date
     var updatedAt: Date
