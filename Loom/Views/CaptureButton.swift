@@ -20,15 +20,7 @@ struct CaptureButton: View {
             Button { showingFiles = true } label: { Label("Import Files", systemImage: "folder") }
             Button { pasteFromClipboard() } label: { Label("Paste", systemImage: "doc.on.clipboard") }
         } label: {
-            Image(systemName: "plus")
-                .font(.title2.weight(.bold))
-                .foregroundStyle(.white)
-                .frame(width: 56, height: 56)
-                .background(
-                    Circle().fill(LinearGradient(colors: [Color.accentColor, Color(red: 0.55, green: 0.38, blue: 0.95)],
-                                                 startPoint: .topLeading, endPoint: .bottomTrailing))
-                )
-                .shadow(color: Color.accentColor.opacity(0.45), radius: 12, y: 5)
+            CaptureGlyph()
         }
         .menuStyle(.button)
         .buttonStyle(.plain)
@@ -81,6 +73,26 @@ struct CaptureButton: View {
             librarian.addPasted(text)
         }
         #endif
+    }
+}
+
+/// The "+" itself: Loom's one primary action. Accent-tinted Liquid Glass where available,
+/// otherwise the signature gradient with its coral glow.
+private struct CaptureGlyph: View {
+    var body: some View {
+        let plus = Image(systemName: "plus")
+            .font(.title2.weight(.semibold))
+            .foregroundStyle(Theme.onAccent)
+            .frame(width: 56, height: 56)
+        if #available(iOS 26.0, macOS 26.0, *) {
+            plus
+                .background(Theme.signature.opacity(0.55), in: Circle())
+                .glassEffect(.regular.tint(Theme.accent).interactive(), in: Circle())
+        } else {
+            plus
+                .background(Theme.signature, in: Circle())
+                .shadow(color: Theme.accent.opacity(0.35), radius: 14, y: 8)
+        }
     }
 }
 

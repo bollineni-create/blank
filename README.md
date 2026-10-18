@@ -18,7 +18,7 @@ Recommended models: **Qwen3 1.7B** on iPhone (about 1.1 GB) and **Qwen3 4B** on 
 ## Requirements
 
 - Xcode 26 or newer, on an Apple silicon Mac
-- A **real iPhone/iPad or Mac**. The prebuilt llama.cpp framework has no iOS Simulator build, so use a real device.
+- A real iPhone/iPad or Mac to run downloaded models. The app also runs in the iOS Simulator, but there only Apple Intelligence works: llama.cpp has no simulator build, so `LlamaKit/fetch-llama.sh` adds a stub simulator slice.
 - No extra Xcode downloads: llama.cpp ships precompiled, so the Metal toolchain is **not** needed.
 - iOS 17+ / macOS 14+
 
@@ -26,12 +26,12 @@ Recommended models: **Qwen3 1.7B** on iPhone (about 1.1 GB) and **Qwen3 4B** on 
 
 ```bash
 brew install xcodegen      # one-time
-xcodegen generate          # creates Loom.xcodeproj from project.yml
+xcodegen generate          # downloads llama.cpp (about 65 MB, once), then creates Loom.xcodeproj
 open Loom.xcodeproj
 ```
 
 1. In Xcode, select the **Loom-iOS** or **Loom-macOS** target, go to **Signing & Capabilities**, and choose your Team. A free Apple ID works for personal use.
-2. Press ⌘R. The first build downloads the prebuilt llama.cpp framework (about 65 MB).
+2. Press ⌘R.
 3. On first launch, Loom offers to download the recommended model. Use Wi-Fi.
 
 Notes for iPhone:

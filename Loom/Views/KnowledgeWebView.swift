@@ -40,8 +40,12 @@ final class WebSimulation {
     @ObservationIgnored private(set) var neighbors: [Set<Int>] = []
     @ObservationIgnored private(set) var index: [String: Int] = [:]
     @ObservationIgnored private(set) var images: [UUID: Image] = [:]
+    /// Half-size of each concept's pill as last drawn, so taps anywhere on a pill hit it.
+    @ObservationIgnored var pillHalfSizes: [Int: CGSize] = [:]
     @ObservationIgnored private var alpha: CGFloat = 1
     @ObservationIgnored private var alphaTarget: CGFloat = 0
+    /// Set between reaching rest and the deferred `settled = true`, so the save happens once.
+    @ObservationIgnored private var settling = false
 
     private static let positionsKey = "web.positions"
 
@@ -70,15 +74,15 @@ final class WebSimulation {
             let p = startPosition(id, near: nil)
             newIndex[id] = newNodes.count
             newNodes.append(Node(id: id, kind: .concept(name: tag, isSpace: false), x: p.x, y: p.y,
-                                 radius: 10 + CGFloat(count).squareRoot() * 3.5, colorIndex: i, count: count))
+                                 radius: 14 + CGFloat(count).squareRoot() * 4, colorIndex: i, count: count))
         }
-        for space in spaces {
+        for (s, space) in spaces.enumerated() {
             let count = items.filter { $0.space?.id == space.id }.count
             let id = "space:\(space.id)"
             let p = startPosition(id, near: nil)
             newIndex[id] = newNodes.count
             newNodes.append(Node(id: id, kind: .concept(name: "\(space.emoji) \(space.name)", isSpace: true), x: p.x, y: p.y,
-                                 radius: 12 + CGFloat(count).squareRoot() * 3, colorIndex: -1, count: count))
+                                 radius: 16 + CGFloat(count).squareRoot() * 4, colorIndex: tags.count + s, count: count))
         }
 
         // Files, placed near their first concept the first time they appear.
@@ -90,8 +94,9 @@ final class WebSimulation {
             let p = startPosition(id, near: anchor)
             let me = newNodes.count
             newIndex[id] = me
+            // Items take the branch color of their first concept; unsorted items stay neutral (-1).
             newNodes.append(Node(id: id, kind: .item(item.id), x: p.x, y: p.y, radius: 7,
-                                 colorIndex: ItemKind.allCases.firstIndex(of: item.kind) ?? 0, count: 0))
+                                 colorIndex: anchorID.flatMap { newIndex[$0] }.map { newNodes[$0].colorIndex } ?? -1, count: 0))
             for tag in item.tags {
                 if let c = newIndex["tag:\(tag)"] { newLinks.append(Link(a: c, b: me, distance: 80, isSimilarity: false)) }
             }
@@ -140,6 +145,7 @@ final class WebSimulation {
         links = newLinks
         neighbors = newNeighbors
         index = newIndex
+        pillHalfSizes = [:]
         images = newImages.filter { id, _ in newIndex["item:\(id)"] != nil }
 
         if isFirstBuild && !hadSavedLayout {
@@ -154,11 +160,18 @@ final class WebSimulation {
     // MARK: Physics
 
     func tick() {
-        guard !settled else { return }
+        guard !settled, !settling else { return }
         step()
         if alpha < 0.004 && alphaTarget == 0 {
-            savePositions()
-            DispatchQueue.main.async { self.settled = true }
+            // tick() runs while a frame renders: defer both the observed change and the save,
+            // since writing UserDefaults mid-render re-triggers rendering (via @AppStorage) in a tight loop.
+            settling = true
+            DispatchQueue.main.async {
+                self.settling = false
+                guard self.alpha < 0.004 && self.alphaTarget == 0 else { return }
+                self.settled = true
+                self.savePositions()
+            }
         }
     }
 
@@ -199,6 +212,24 @@ final class WebSimulation {
                 nodes[i].vy += dy * cj * inv
                 nodes[j].vx -= dx * ci * inv
                 nodes[j].vy -= dy * ci * inv
+
+                // Pills are wider than their circle: push overlapping pills apart along the shorter overlap.
+                if let hi = pillHalfSizes[i], let hj = pillHalfSizes[j] {
+                    let ox = hi.width + hj.width + 10 - abs(dx)
+                    let oy = hi.height + hj.height + 6 - abs(dy)
+                    if ox > 0 && oy > 0 {
+                        if ox < oy {
+                            let push = ox * 0.25 * (dx < 0 ? -1 : 1)
+                            nodes[i].vx -= push
+                            nodes[j].vx += push
+                        } else {
+                            let push = oy * 0.25 * (dy < 0 ? -1 : 1)
+                            nodes[i].vy -= push
+                            nodes[j].vy += push
+                        }
+                        continue
+                    }
+                }
 
                 let minD = nodes[i].radius + nodes[j].radius + 6
                 if d2 < minD * minD {
@@ -241,6 +272,10 @@ final class WebSimulation {
         for (i, node) in nodes.enumerated() {
             let dx = node.x - p.x, dy = node.y - p.y
             let d = (dx * dx + dy * dy).squareRoot()
+            if let half = pillHalfSizes[i], abs(dx) <= half.width + slop, abs(dy) <= half.height + slop {
+                // Pills sit on top of files, so a pill wins over anything under it.
+                return i
+            }
             if d <= node.radius + slop, d < (best?.1 ?? .infinity) { best = (i, d) }
         }
         return best?.0
@@ -336,28 +371,9 @@ struct KnowledgeWebView: View {
         case pan(start: CGSize)
     }
 
-    static let conceptPalette: [Color] = [
-        Color(red: 0.98, green: 0.45, blue: 0.29), Color(red: 0.25, green: 0.52, blue: 0.96),
-        Color(red: 0.16, green: 0.70, blue: 0.50), Color(red: 0.90, green: 0.32, blue: 0.62),
-        Color(red: 0.55, green: 0.38, blue: 0.95), Color(red: 0.08, green: 0.66, blue: 0.75),
-        Color(red: 0.95, green: 0.66, blue: 0.13), Color(red: 0.36, green: 0.42, blue: 0.86),
-        Color(red: 0.85, green: 0.25, blue: 0.30), Color(red: 0.42, green: 0.70, blue: 0.20),
-    ]
-
-    /// File colours by type, in `ItemKind.allCases` order: note, link, image, video, pdf, file.
-    static let kindColors: [Color] = [
-        Color(red: 0.30, green: 0.56, blue: 0.98), Color(red: 0.18, green: 0.72, blue: 0.48),
-        Color(red: 0.93, green: 0.36, blue: 0.62), Color(red: 0.92, green: 0.30, blue: 0.27),
-        Color(red: 0.97, green: 0.58, blue: 0.16), Color(red: 0.55, green: 0.57, blue: 0.62),
-    ]
-
+    /// Concepts take the branch palette in order; items share their concept's color.
     private func color(of node: WebSimulation.Node) -> Color {
-        switch node.kind {
-        case .concept(_, let isSpace):
-            isSpace ? Color.accentColor : Self.conceptPalette[node.colorIndex % Self.conceptPalette.count]
-        case .item:
-            Self.kindColors[node.colorIndex % Self.kindColors.count]
-        }
+        node.colorIndex < 0 ? Theme.labelTertiary : Theme.branch(node.colorIndex)
     }
 
     /// Changes whenever something that shapes the web changes.
@@ -422,9 +438,19 @@ struct KnowledgeWebView: View {
         let busy = librarian.busyItemIDs
 
         return Canvas { ctx, size in
+            drawGrid(&ctx, size: size)
             ctx.translateBy(x: size.width / 2 + pan.width, y: size.height / 2 + pan.height)
             ctx.scaleBy(x: scale, y: scale)
             let nodes = sim.nodes
+            let compact = scale < 0.42
+
+            // The violet → coral light at the map center.
+            let glowRadius: CGFloat = 520
+            ctx.fill(Path(ellipseIn: CGRect(x: -glowRadius, y: -glowRadius, width: glowRadius * 2, height: glowRadius * 2)),
+                     with: .radialGradient(Gradient(stops: [.init(color: Theme.glowViolet, location: 0),
+                                                            .init(color: Theme.glowCoral, location: 0.45),
+                                                            .init(color: .clear, location: 1)]),
+                                           center: .zero, startRadius: 0, endRadius: glowRadius))
 
             func dimmed(_ i: Int) -> Bool {
                 if let focus, !focus.contains(i) { return true }
@@ -432,91 +458,157 @@ struct KnowledgeWebView: View {
                 return false
             }
 
-            // Links
+            // Edges: thin curves in the branch color, no glow. Related files get a faint dashed link.
             for link in sim.links {
                 let a = nodes[link.a], b = nodes[link.b]
+                let from = CGPoint(x: a.x, y: a.y), to = CGPoint(x: b.x, y: b.y)
                 var path = Path()
-                path.move(to: CGPoint(x: a.x, y: a.y))
-                path.addLine(to: CGPoint(x: b.x, y: b.y))
+                path.move(to: from)
+                let mid = CGPoint(x: (from.x + to.x) / 2, y: (from.y + to.y) / 2)
+                let bend: CGFloat = 0.12
+                path.addQuadCurve(to: to, control: CGPoint(x: mid.x - (to.y - from.y) * bend, y: mid.y + (to.x - from.x) * bend))
                 let lit = focus.map { $0.contains(link.a) && $0.contains(link.b) } ?? false
                 let faded = dimmed(link.a) || dimmed(link.b)
-                let base = link.isSimilarity ? Color.secondary : color(of: a)
-                let opacity: Double = faded ? 0.05 : (lit ? 0.85 : (link.isSimilarity ? 0.25 : 0.35))
-                ctx.stroke(path, with: .color(base.opacity(opacity)),
-                           style: StrokeStyle(lineWidth: (lit ? 2.2 : 1.2) / max(scale, 0.6),
-                                              lineCap: .round, dash: link.isSimilarity ? [3, 4] : []))
+                let width = (lit ? 2 : 1.5) / max(scale, 0.6)
+                if link.isSimilarity {
+                    ctx.stroke(path, with: .color(Theme.labelTertiary.opacity(faded ? 0.05 : (lit ? 0.7 : 0.3))),
+                               style: StrokeStyle(lineWidth: width, lineCap: .round, dash: [4 / max(scale, 0.6), 6 / max(scale, 0.6)]))
+                } else {
+                    ctx.stroke(path, with: .color(color(of: a).opacity(faded ? 0.05 : (lit ? 0.8 : 0.45))),
+                               style: StrokeStyle(lineWidth: width, lineCap: .round))
+                }
             }
 
-            // Nodes
-            for (i, node) in nodes.enumerated() {
-                let c = color(of: node)
-                let faded = dimmed(i)
-                let isHovered = hovered == i
-                var r = node.radius * (isHovered ? 1.25 : 1)
-                var selected = false
-                if case .item(let id) = node.kind {
-                    selected = selection == id
-                    if selected { r *= 1.3 }
-                }
-                let rect = CGRect(x: node.x - r, y: node.y - r, width: r * 2, height: r * 2)
-                ctx.opacity = faded ? 0.15 : 1
+            // Files: white discs with a hairline, the kind symbol and a ring in the branch color.
+            // Zoomed far out they become plain branch-colored dots.
+            ctx.drawLayer { layer in
+                if !compact { layer.addFilter(.shadow(color: Color(hex: 0x1c1b19, opacity: 0.12), radius: 3, x: 0, y: 1)) }
+                for (i, node) in nodes.enumerated() {
+                    guard case .item(let id) = node.kind else { continue }
+                    let c = color(of: node)
+                    let isHovered = hovered == i
+                    let selected = selection == id
+                    var r = node.radius + (compact ? 0 : 3)
+                    if isHovered || selected { r *= 1.2 }
+                    let rect = CGRect(x: node.x - r, y: node.y - r, width: r * 2, height: r * 2)
+                    layer.opacity = dimmed(i) ? Theme.dimmedOpacity : 1
 
-                switch node.kind {
-                case .concept(_, let isSpace):
-                    // Glow, then a gradient disc.
-                    ctx.fill(Path(ellipseIn: rect.insetBy(dx: -r * 0.6, dy: -r * 0.6)), with: .color(c.opacity(0.14)))
-                    let shape = isSpace ? Path(roundedRect: rect, cornerRadius: r * 0.45) : Path(ellipseIn: rect)
-                    ctx.fill(shape, with: .linearGradient(Gradient(colors: [c.opacity(0.95), c.opacity(0.7)]),
-                                                         startPoint: CGPoint(x: rect.minX, y: rect.minY),
-                                                         endPoint: CGPoint(x: rect.maxX, y: rect.maxY)))
-                    if selectedConcept == node.id {
-                        ctx.stroke(shape, with: .color(.primary), lineWidth: 2.5 / scale)
-                    }
-                case .item(let id):
-                    if let image = sim.images[id], scale > 0.8 || isHovered || selected {
-                        let big = rect.insetBy(dx: -r * 0.5, dy: -r * 0.5)
-                        ctx.drawLayer { layer in
-                            layer.clip(to: Path(ellipseIn: big))
-                            layer.draw(image, in: big)
+                    if compact {
+                        layer.fill(Path(ellipseIn: rect), with: .color(c))
+                    } else if let image = sim.images[id], scale > 0.8 || isHovered || selected {
+                        let big = rect.insetBy(dx: -r * 0.4, dy: -r * 0.4)
+                        layer.drawLayer { inner in
+                            inner.clip(to: Path(ellipseIn: big))
+                            inner.draw(image, in: big)
                         }
-                        ctx.stroke(Path(ellipseIn: big), with: .color(c), lineWidth: 2 / scale)
+                        layer.stroke(Path(ellipseIn: big), with: .color(c), lineWidth: 1.5 / scale)
                     } else {
-                        ctx.fill(Path(ellipseIn: rect), with: .color(c))
-                        ctx.stroke(Path(ellipseIn: rect), with: .color(.white.opacity(0.7)), lineWidth: 1 / scale)
+                        layer.fill(Path(ellipseIn: rect), with: .color(Theme.surface))
+                        layer.stroke(Path(ellipseIn: rect.insetBy(dx: 0.75 / scale, dy: 0.75 / scale)), with: .color(c), lineWidth: 1.5 / scale)
+                        if r * scale >= 9, let item = byID[id] {
+                            layer.draw(Text(Image(systemName: item.kind.symbol))
+                                        .font(.system(size: r * 0.95, weight: .medium))
+                                        .foregroundStyle(Theme.labelSecondary),
+                                       at: CGPoint(x: node.x, y: node.y))
+                        }
                     }
                     if selected {
-                        ctx.stroke(Path(ellipseIn: rect.insetBy(dx: -r * 0.7, dy: -r * 0.7)), with: .color(c), lineWidth: 2.5 / scale)
+                        // Selection: a 2px ring in the branch color, offset 2px.
+                        let outer = (sim.images[id] != nil && (scale > 0.8 || isHovered || selected)) ? r * 1.4 : r
+                        let gap = 2 / scale
+                        layer.stroke(Path(ellipseIn: CGRect(x: node.x - outer - gap - 1 / scale, y: node.y - outer - gap - 1 / scale,
+                                                            width: (outer + gap + 1 / scale) * 2, height: (outer + gap + 1 / scale) * 2)),
+                                     with: .color(c), lineWidth: 2 / scale)
                     }
                     if busy.contains(id) {
                         // Still being copied, read or summarized.
-                        ctx.stroke(Path(ellipseIn: rect.insetBy(dx: -r * 1.1, dy: -r * 1.1)), with: .color(Color.accentColor),
-                                   style: StrokeStyle(lineWidth: 2 / scale, dash: [4 / scale, 3 / scale]))
+                        layer.stroke(Path(ellipseIn: rect.insetBy(dx: -r * 0.9, dy: -r * 0.9)), with: .color(Theme.accentInk),
+                                     style: StrokeStyle(lineWidth: 1.5 / scale, dash: [4 / scale, 3 / scale]))
                     }
                 }
-                ctx.opacity = 1
             }
 
-            // Labels last so they sit on top.
+            // File names under the discs.
             for (i, node) in nodes.enumerated() {
-                let faded = dimmed(i)
-                switch node.kind {
-                case .concept(let name, _):
-                    let fontSize = min(22, max(11, 13 / scale.squareRoot()))
-                    ctx.opacity = faded ? 0.2 : 1
-                    ctx.draw(Text(name.capitalized).font(.system(size: fontSize, weight: .bold)).foregroundStyle(.primary),
-                             at: CGPoint(x: node.x, y: node.y + node.radius + 4), anchor: .top)
-                case .item(let id):
-                    let wanted = showFileNames || hovered == i || selection == id || (focus?.contains(i) ?? false) || (matches?.contains(i) ?? false)
-                    guard wanted, !faded, let item = byID[id] else { continue }
-                    let title = item.displayTitle
-                    let short = title.count > 32 ? String(title.prefix(30)) + "…" : title
-                    ctx.opacity = 1
-                    ctx.draw(Text(short).font(.system(size: max(9, 11 / scale.squareRoot()), weight: .medium)).foregroundStyle(.secondary),
-                             at: CGPoint(x: node.x, y: node.y + node.radius + 3), anchor: .top)
+                guard case .item(let id) = node.kind else { continue }
+                let wanted = showFileNames || hovered == i || selection == id || (focus?.contains(i) ?? false) || (matches?.contains(i) ?? false)
+                guard wanted, !dimmed(i), !compact, let item = byID[id] else { continue }
+                let title = item.displayTitle
+                let short = title.count > 32 ? String(title.prefix(30)) + "…" : title
+                ctx.draw(Text(short).font(.system(size: max(9, 11 / scale.squareRoot()), weight: .medium)).foregroundStyle(Theme.labelSecondary),
+                         at: CGPoint(x: node.x, y: node.y + node.radius + 6), anchor: .top)
+            }
+
+            // Concepts: white surface pills with a hairline, a branch-color dot, the name and a count.
+            let fontSize = min(24, max(13, 15 / scale.squareRoot()))
+            var pills: [(index: Int, rect: CGRect, name: GraphicsContext.ResolvedText, count: GraphicsContext.ResolvedText,
+                         nameSize: CGSize, countSize: CGSize)] = []
+            for (i, node) in nodes.enumerated() {
+                guard case .concept(let name, let isSpace) = node.kind else { continue }
+                let label = ctx.resolve(Text(isSpace ? name : name.capitalized)
+                    .font(.system(size: fontSize, weight: .semibold)).foregroundStyle(Theme.label))
+                let count = ctx.resolve(Text("\(node.count)")
+                    .font(.system(size: fontSize * 0.72, weight: .bold)).foregroundStyle(Theme.labelSecondary))
+                let nameSize = label.measure(in: CGSize(width: 1000, height: 200))
+                let countSize = count.measure(in: CGSize(width: 200, height: 200))
+                let width = fontSize * 0.9 + fontSize * 0.5 + fontSize * 0.45 + nameSize.width + fontSize * 0.5 + countSize.width + fontSize * 0.8 + fontSize * 0.5
+                let height = nameSize.height + fontSize * 0.8
+                let rect = CGRect(x: node.x - width / 2, y: node.y - height / 2, width: width, height: height)
+                pills.append((i, rect, label, count, nameSize, countSize))
+                sim.pillHalfSizes[i] = CGSize(width: width / 2, height: height / 2)
+            }
+            ctx.drawLayer { layer in
+                layer.addFilter(.shadow(color: Color(hex: 0x1c1b19, opacity: 0.08), radius: 6, x: 0, y: 3))
+                for pill in pills {
+                    layer.opacity = dimmed(pill.index) ? Theme.dimmedOpacity : 1
+                    layer.fill(Path(roundedRect: pill.rect, cornerRadius: pill.rect.height / 2), with: .color(Theme.surface))
                 }
+            }
+            for pill in pills {
+                let node = nodes[pill.index]
+                let c = color(of: node)
+                let rect = pill.rect
+                ctx.opacity = dimmed(pill.index) ? Theme.dimmedOpacity : 1
+                let capsule = Path(roundedRect: rect, cornerRadius: rect.height / 2)
+                ctx.stroke(capsule, with: .color(Theme.hairline), lineWidth: 1 / scale)
+                if selectedConcept == node.id || hovered == pill.index {
+                    let gap = 2 / scale
+                    let ring = rect.insetBy(dx: -gap - 1 / scale, dy: -gap - 1 / scale)
+                    ctx.stroke(Path(roundedRect: ring, cornerRadius: ring.height / 2),
+                               with: .color(selectedConcept == node.id ? c : Theme.hairline), lineWidth: 2 / scale)
+                }
+                var x = rect.minX + fontSize * 0.9
+                let dot = fontSize * 0.5
+                ctx.fill(Path(ellipseIn: CGRect(x: x, y: rect.midY - dot / 2, width: dot, height: dot)), with: .color(c))
+                x += dot + fontSize * 0.45
+                ctx.draw(pill.name, at: CGPoint(x: x, y: rect.midY), anchor: .leading)
+                x += pill.nameSize.width + fontSize * 0.5
+                let countRect = CGRect(x: x, y: rect.midY - (pill.countSize.height + fontSize * 0.3) / 2,
+                                       width: pill.countSize.width + fontSize * 0.8, height: pill.countSize.height + fontSize * 0.3)
+                ctx.fill(Path(roundedRect: countRect, cornerRadius: countRect.height / 2), with: .color(Theme.surfaceSunken))
+                ctx.draw(pill.count, at: CGPoint(x: countRect.midX, y: countRect.midY))
             }
             ctx.opacity = 1
         }
+    }
+
+    /// The map's dot grid: 30pt pitch at 1× zoom (never tighter than 14pt on screen), moving with the map.
+    private func drawGrid(_ ctx: inout GraphicsContext, size: CGSize) {
+        var pitch = Theme.Space.s30 * scale
+        while pitch < 14 { pitch *= 2 }
+        let originX = (size.width / 2 + pan.width).truncatingRemainder(dividingBy: pitch)
+        let originY = (size.height / 2 + pan.height).truncatingRemainder(dividingBy: pitch)
+        var dots = Path()
+        var y = originY < 0 ? originY + pitch : originY
+        while y < size.height {
+            var x = originX < 0 ? originX + pitch : originX
+            while x < size.width {
+                dots.addEllipse(in: CGRect(x: x - 1, y: y - 1, width: 2, height: 2))
+                x += pitch
+            }
+            y += pitch
+        }
+        ctx.fill(dots, with: .color(Theme.mapDot))
     }
 
     /// When hovering a node or a concept is selected: that node and its direct connections.
@@ -544,13 +636,7 @@ struct KnowledgeWebView: View {
         return result
     }
 
-    private var background: some View {
-        ZStack {
-            Color(white: 0.5).opacity(0.04)
-            RadialGradient(colors: [Color.accentColor.opacity(0.08), .clear], center: .center, startRadius: 0, endRadius: 700)
-        }
-        .background(.background)
-    }
+    private var background: some View { Theme.background }
 
     // MARK: Gestures
 
@@ -628,21 +714,22 @@ struct KnowledgeWebView: View {
     private var zoomControls: some View {
         VStack(spacing: 0) {
             Button { withAnimation(.spring) { scale = clampScale(scale * 1.3); baseScale = scale } } label: {
-                Image(systemName: "plus").frame(width: 38, height: 38)
+                Image(systemName: "plus").frame(width: 40, height: 40).contentShape(Rectangle())
             }
-            Divider().frame(width: 38)
+            Rectangle().fill(Theme.hairline).frame(width: 24, height: 1)
             Button { withAnimation(.spring) { scale = clampScale(scale / 1.3); baseScale = scale } } label: {
-                Image(systemName: "minus").frame(width: 38, height: 38)
+                Image(systemName: "minus").frame(width: 40, height: 40).contentShape(Rectangle())
             }
-            Divider().frame(width: 38)
+            Rectangle().fill(Theme.hairline).frame(width: 24, height: 1)
             Button { withAnimation(.spring) { fit() } } label: {
-                Image(systemName: "arrow.up.left.and.arrow.down.right").frame(width: 38, height: 38)
+                Image(systemName: "arrow.up.left.and.arrow.down.right").frame(width: 40, height: 40).contentShape(Rectangle())
             }
         }
         .buttonStyle(.plain)
-        .font(.body.weight(.semibold))
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-        .padding(.trailing, 16)
+        .font(.body.weight(.medium))
+        .foregroundStyle(Theme.label)
+        .floatingChrome(RoundedRectangle(cornerRadius: Theme.Radius.panel))
+        .padding(.trailing, Theme.Space.s20)
         .padding(.bottom, 96)
     }
 
@@ -652,20 +739,19 @@ struct KnowledgeWebView: View {
     @ViewBuilder
     private func hoverCard(byID: [UUID: Item], size: CGSize) -> some View {
         if dragMode == nil, let i = hovered, sim.nodes.indices.contains(i), case .item(let id) = sim.nodes[i].kind, let item = byID[id] {
-            MapItemCard(item: item, color: color(of: sim.nodes[i]))
+            ItemCard(item: item, color: color(of: sim.nodes[i]), selected: selection == id)
                 .allowsHitTesting(false)
-                .offset(x: min(hoverLocation.x + 16, size.width - 200), y: min(hoverLocation.y + 16, size.height - 160))
+                .offset(x: min(hoverLocation.x + 16, size.width - Theme.itemCardWidth - 8), y: min(hoverLocation.y + 16, size.height - 240))
                 .transition(.opacity)
         }
     }
 
     private var legend: some View {
-        HStack(spacing: 10) {
-            ForEach(Array(ItemKind.allCases.enumerated()), id: \.offset) { i, kind in
-                HStack(spacing: 4) {
-                    Circle().fill(Self.kindColors[i]).frame(width: 8, height: 8)
-                    Text(kind.label).font(.caption2.weight(.medium))
-                }
+        HStack(spacing: Theme.Space.s12) {
+            // Names when there's room; symbols alone on a narrow iPhone.
+            ViewThatFits(in: .horizontal) {
+                kindKey(showNames: true)
+                kindKey(showNames: false)
             }
             Menu {
                 Toggle("Link Related Files", isOn: $linkSimilar)
@@ -674,29 +760,43 @@ struct KnowledgeWebView: View {
                 Button("Fit to Screen") { withAnimation(.spring) { fit() } }
                 Button("Shake Up Layout") { sim.resetLayout() }
             } label: {
-                Image(systemName: "slider.horizontal.3").font(.caption.weight(.bold)).frame(width: 26, height: 22)
+                Image(systemName: "slider.horizontal.3").font(.caption.weight(.semibold)).frame(width: 26, height: 22)
             }
             .menuStyle(.button)
             .buttonStyle(.plain)
             .menuIndicator(.hidden)
             .fixedSize()
         }
-        .foregroundStyle(.secondary)
-        .padding(.horizontal, 12).padding(.vertical, 7)
-        .background(.regularMaterial, in: Capsule())
-        .padding(.leading, 16)
-        .padding(.top, 74)
+        .foregroundStyle(Theme.labelSecondary)
+        .padding(.horizontal, Theme.Space.s12).padding(.vertical, Theme.Space.s8)
+        .floatingChrome(Capsule())
+        .padding(.leading, Theme.Space.s20)
+        .padding(.top, 80)
+    }
+
+    private func kindKey(showNames: Bool) -> some View {
+        HStack(spacing: showNames ? Theme.Space.s12 : Theme.Space.s16) {
+            ForEach(ItemKind.allCases) { kind in
+                HStack(spacing: Theme.Space.s4) {
+                    Image(systemName: kind.symbol).font(.caption2.weight(.medium))
+                    if showNames { Text(kind.label).font(.caption2.weight(.medium)) }
+                }
+                .fixedSize()
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel(kind.label)
+            }
+        }
     }
 
     /// Shown when a concept is selected: what it is and a shortcut to add to it.
     @ViewBuilder
     private var conceptChip: some View {
         if let id = selectedConcept, let i = sim.index[id], case .concept(let name, let isSpace) = sim.nodes[i].kind {
-            HStack(spacing: 10) {
-                Circle().fill(color(of: sim.nodes[i])).frame(width: 12, height: 12)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(name.capitalized).font(.headline)
-                    Text("\(sim.neighbors[i].count) connected").font(.caption).foregroundStyle(.secondary)
+            HStack(spacing: Theme.Space.s12) {
+                Circle().fill(color(of: sim.nodes[i])).frame(width: 10, height: 10)
+                VStack(alignment: .leading, spacing: Theme.Space.s2) {
+                    Text(isSpace ? name : name.capitalized).font(.headline).foregroundStyle(Theme.label)
+                    Text("\(sim.neighbors[i].count) connected").font(.caption).foregroundStyle(Theme.labelSecondary)
                 }
                 if !isSpace {
                     Button {
@@ -707,82 +807,94 @@ struct KnowledgeWebView: View {
                 }
                 Button { withAnimation { selectedConcept = nil } } label: { Image(systemName: "xmark") }
                     .buttonStyle(.plain)
+                    .foregroundStyle(Theme.labelSecondary)
             }
-            .padding(12)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
-            .padding(.leading, 16)
+            .padding(Theme.Space.s16)
+            .surfaceTile(RoundedRectangle(cornerRadius: Theme.Radius.panel))
+            .padding(.leading, Theme.Space.s20)
             .padding(.bottom, 92)
             .transition(.move(edge: .bottom).combined(with: .opacity))
         }
     }
 
     private var emptyState: some View {
-        VStack(spacing: 10) {
-            Image(systemName: "circle.hexagongrid").font(.system(size: 40)).foregroundStyle(Color.accentColor)
-            Text("Your web grows as you save things").font(.title3.bold())
+        VStack(spacing: Theme.Space.s12) {
+            Image(systemName: "brain.head.profile").font(.system(size: 36, weight: .regular)).foregroundStyle(Theme.labelSecondary)
+            Text("Your mind map grows as you save things").font(.loomTitle3).serifTracking().foregroundStyle(Theme.label)
             Text("Add notes, links, photos, videos or files with +, or drop them here. The on-device AI finds the concepts and connects everything.")
-                .multilineTextAlignment(.center).foregroundStyle(.secondary).frame(maxWidth: 400)
+                .multilineTextAlignment(.center).foregroundStyle(Theme.labelSecondary).frame(maxWidth: 400)
         }
-        .padding(24)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18))
+        .padding(Theme.Space.s24)
+        .surfaceTile(RoundedRectangle(cornerRadius: Theme.Radius.sheet))
     }
 }
 
-/// Preview card for a file (shown on hover).
-struct MapItemCard: View {
+/// A file on the map: a 200pt white card with a hairline, a soft shadow, an inset thumbnail,
+/// a kind badge in the branch color and, when selected, a 2px ring in that color.
+struct ItemCard: View {
     let item: Item
     let color: Color
+    var selected = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if let data = item.thumbnail, let image = PlatformImage(data: data) {
                 Image(platformImage: image)
                     .resizable().aspectRatio(contentMode: .fill)
-                    .frame(width: 200, height: 100)
-                    .clipped()
+                    .frame(width: Theme.itemCardWidth - Theme.Space.s12, height: 108 - Theme.Space.s12)
+                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card - Theme.Space.s6))
                     .overlay {
                         if item.kind == .video {
                             Image(systemName: "play.circle.fill").font(.system(size: 30))
                                 .foregroundStyle(.white).shadow(radius: 3)
                         }
                     }
+                    .padding([.top, .horizontal], Theme.Space.s6)
             }
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 5) {
+            VStack(alignment: .leading, spacing: Theme.Space.s4) {
+                HStack(spacing: Theme.Space.s6) {
                     Image(systemName: item.kind.symbol)
-                        .font(.system(size: 10, weight: .bold))
+                        .font(.system(size: 10, weight: .semibold))
                         .foregroundStyle(.white)
-                        .frame(width: 18, height: 18)
-                        .background(color, in: RoundedRectangle(cornerRadius: 5))
+                        .frame(width: 20, height: 20)
+                        .background(color, in: RoundedRectangle(cornerRadius: Theme.Radius.badge))
                     Text(item.url?.host() ?? item.kind.label.dropLast().description)
                         .font(.caption2.weight(.medium))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Theme.labelSecondary)
                         .lineLimit(1)
+                    Spacer(minLength: 0)
+                    if item.isFavorite {
+                        Image(systemName: "star.fill").font(.caption2).foregroundStyle(Theme.favorite)
+                    }
                 }
                 Text(item.displayTitle)
                     .font(.footnote.weight(.semibold))
+                    .foregroundStyle(Theme.label)
                     .lineLimit(2)
-                if !item.summary.isEmpty {
-                    Text(item.summary).font(.caption2).foregroundStyle(.secondary).lineLimit(3)
-                } else if !item.preview.isEmpty {
-                    Text(item.preview).font(.caption2).foregroundStyle(.secondary).lineLimit(3)
+                if !item.preview.isEmpty {
+                    Text(item.preview).font(.caption2).foregroundStyle(Theme.labelSecondary).lineLimit(3)
                 }
                 ForEach(Array(item.takeaways.prefix(2).enumerated()), id: \.offset) { _, lesson in
-                    HStack(alignment: .firstTextBaseline, spacing: 4) {
-                        Image(systemName: "lightbulb.fill").font(.system(size: 8)).foregroundStyle(.yellow)
-                        Text(lesson).font(.caption2).lineLimit(2)
+                    HStack(alignment: .firstTextBaseline, spacing: Theme.Space.s4) {
+                        Image(systemName: "sparkles").font(.system(size: 8)).foregroundStyle(Theme.accentInk)
+                        Text(lesson).font(.caption2).foregroundStyle(Theme.label).lineLimit(2)
                     }
                 }
                 if !item.tags.isEmpty {
                     Text(item.tags.prefix(4).map { "#\($0)" }.joined(separator: " "))
-                        .font(.caption2).foregroundStyle(color).lineLimit(1)
+                        .font(.caption2).foregroundStyle(Theme.labelSecondary).lineLimit(1)
                 }
             }
-            .padding(10)
+            .padding(Theme.Space.s12)
         }
-        .frame(width: 200, alignment: .leading)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
-        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(color.opacity(0.5), lineWidth: 1))
-        .shadow(color: .black.opacity(0.15), radius: 10, y: 4)
+        .frame(width: Theme.itemCardWidth, alignment: .leading)
+        .surfaceTile(RoundedRectangle(cornerRadius: Theme.Radius.card), lifted: selected)
+        .overlay {
+            if selected {
+                RoundedRectangle(cornerRadius: Theme.Radius.card + 4)
+                    .strokeBorder(color, lineWidth: 2)
+                    .padding(-4)
+            }
+        }
     }
 }

@@ -11,6 +11,7 @@ enum Panel: Equatable {
 struct RootView: View {
     @Environment(LLMService.self) private var llm
     @Environment(Librarian.self) private var librarian
+    @Environment(LoomRouter.self) private var router
     @Query(sort: \Item.createdAt, order: .reverse) private var items: [Item]
 
     @State private var panel: Panel?
@@ -34,35 +35,41 @@ struct RootView: View {
                 Spacer()
                 bottomBar
             }
-            .padding(16)
+            .padding(Theme.Space.s20)
         }
+        .background(Theme.background)
+        .tint(Theme.accent)
         .overlay(alignment: .topTrailing) {
             UploadsTray { id in
                 selectedItem = id
                 focusRequest = id
             }
-            .padding(.top, 70)
-            .padding(.trailing, 16)
+            .padding(.top, 74)
+            .padding(.trailing, Theme.Space.s20)
         }
         .overlay {
             if isDropTargeted {
                 ZStack {
-                    RoundedRectangle(cornerRadius: 24)
-                        .fill(Color.accentColor.opacity(0.08))
-                    RoundedRectangle(cornerRadius: 24)
-                        .strokeBorder(Color.accentColor, style: StrokeStyle(lineWidth: 3, dash: [10]))
-                    Label("Drop to add to your brain", systemImage: "tray.and.arrow.down.fill")
-                        .font(.title3.bold())
-                        .padding(.horizontal, 20).padding(.vertical, 12)
-                        .background(.regularMaterial, in: Capsule())
+                    RoundedRectangle(cornerRadius: Theme.Radius.sheet)
+                        .fill(Theme.accentTint)
+                    RoundedRectangle(cornerRadius: Theme.Radius.sheet)
+                        .strokeBorder(Theme.accent, style: StrokeStyle(lineWidth: 2, dash: [10, 8]))
+                    Label("Drop to add to your brain", systemImage: "tray.and.arrow.down")
+                        .font(.headline)
+                        .foregroundStyle(Theme.label)
+                        .padding(.horizontal, Theme.Space.s20).padding(.vertical, Theme.Space.s12)
+                        .surfaceTile(Capsule())
                 }
-                .padding(10)
+                .padding(Theme.Space.s12)
                 .allowsHitTesting(false)
             }
         }
         .onChange(of: librarian.lastAddedID) { _, id in
             if let id { focusRequest = id }
         }
+        .onChange(of: router.openItem) { _, _ in handleRouter() }
+        .onChange(of: router.newNote) { _, _ in handleRouter() }
+        .onReceive(NotificationCenter.default.publisher(for: .loomOpenSettings)) { _ in showingSettings = true }
         .onDrop(of: [.fileURL, .url, .movie, .image, .plainText], isTargeted: $isDropTargeted) { providers in
             DropImporter.importProviders(providers, into: librarian)
             return !providers.isEmpty
@@ -74,6 +81,7 @@ struct RootView: View {
                         if let item = items.first(where: { $0.id == id }) { ItemDetailView(item: item) }
                     }
             }
+            .background(Theme.background)
             .inspectorColumnWidth(min: 340, ideal: 420, max: 600)
         }
         .onChange(of: selectedItem) { _, id in
@@ -94,12 +102,32 @@ struct RootView: View {
             #endif
         }
         .sheet(isPresented: $showingOnboarding) { OnboardingView() }
-        .onAppear { if !llm.hasChosenModel { showingOnboarding = true } }
+        .onAppear {
+            if !llm.hasChosenModel { showingOnboarding = true }
+            handleRouter()
+        }
         #if os(macOS)
         .onPasteCommand(of: [.url, .plainText, .image, .fileURL]) { _ in
             NotificationCenter.default.post(name: .loomPaste, object: nil)
         }
         #endif
+    }
+
+    /// Acts on requests from App Intents (Open Item, New Note).
+    private func handleRouter() {
+        if let id = router.openItem {
+            router.openItem = nil
+            selectedItem = id
+            focusRequest = id
+        }
+        if router.newNote {
+            router.newNote = false
+            // Give the capture button a moment to appear on a cold launch.
+            Task {
+                try? await Task.sleep(for: .milliseconds(300))
+                NotificationCenter.default.post(name: .loomNewNote, object: nil)
+            }
+        }
     }
 
     private var panelShown: Binding<Bool> {
@@ -136,46 +164,53 @@ struct RootView: View {
     // MARK: Top: search, model status, settings
 
     private var topBar: some View {
-        HStack(alignment: .top, spacing: 10) {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 8) {
-                    Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+        HStack(alignment: .top, spacing: Theme.Space.s12) {
+            VStack(alignment: .leading, spacing: Theme.Space.s8) {
+                HStack(spacing: Theme.Space.s8) {
+                    Image(systemName: "magnifyingglass").foregroundStyle(Theme.labelSecondary)
                     TextField("Search your brain", text: $search)
                         .textFieldStyle(.plain)
+                        .foregroundStyle(Theme.label)
                         .focused($searchFocused)
                         .onSubmit { if let first = searchResults.first { open(first) } }
                     if !search.isEmpty {
-                        Button { search = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary) }
+                        Button { search = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(Theme.labelSecondary) }
                             .buttonStyle(.plain)
                     }
                 }
-                .padding(.horizontal, 14).padding(.vertical, 11)
-                .background(.regularMaterial, in: Capsule())
-                .shadow(color: .black.opacity(0.08), radius: 8, y: 3)
+                .padding(.horizontal, Theme.Space.s16).padding(.vertical, Theme.Space.s12)
+                .floatingChrome(Capsule())
+                // The soft violet → coral light behind search. A light, not a fill: text never sits on it.
+                .background(
+                    Theme.glow(radius: 200)
+                        .frame(width: 400, height: 400)
+                        .allowsHitTesting(false)
+                )
 
                 if searchFocused || !search.isEmpty, !searchResults.isEmpty {
                     VStack(alignment: .leading, spacing: 0) {
                         ForEach(searchResults) { item in
                             Button { open(item) } label: {
-                                HStack(spacing: 10) {
-                                    Image(systemName: item.kind.symbol).foregroundStyle(Color.accentColor).frame(width: 20)
-                                    VStack(alignment: .leading, spacing: 1) {
-                                        Text(item.displayTitle).font(.callout.weight(.medium)).lineLimit(1)
+                                HStack(spacing: Theme.Space.s12) {
+                                    Image(systemName: item.kind.symbol).foregroundStyle(Theme.labelSecondary).frame(width: 20)
+                                    VStack(alignment: .leading, spacing: Theme.Space.s2) {
+                                        Text(item.displayTitle).font(.callout.weight(.medium)).foregroundStyle(Theme.label).lineLimit(1)
                                         if !item.preview.isEmpty {
-                                            Text(item.preview).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                                            Text(item.preview).font(.caption).foregroundStyle(Theme.labelSecondary).lineLimit(1)
                                         }
                                     }
                                     Spacer(minLength: 0)
                                 }
-                                .padding(.horizontal, 12).padding(.vertical, 8)
+                                .padding(.horizontal, Theme.Space.s16).padding(.vertical, Theme.Space.s8)
                                 .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
                         }
                     }
-                    .padding(.vertical, 4)
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
-                    .shadow(color: .black.opacity(0.1), radius: 10, y: 4)
+                    .padding(.vertical, Theme.Space.s6)
+                    .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.Radius.panel))
+                    .overlay(RoundedRectangle(cornerRadius: Theme.Radius.panel).strokeBorder(Theme.hairline))
+                    .floatShadow()
                     .transition(.opacity.combined(with: .move(edge: .top)))
                 }
             }
@@ -183,15 +218,21 @@ struct RootView: View {
 
             Spacer(minLength: 0)
 
-            ModelStatusChip()
-            Button { showingSettings = true } label: {
-                Image(systemName: "gearshape.fill")
-                    .font(.body.weight(.semibold))
-                    .frame(width: 42, height: 42)
-                    .background(.regularMaterial, in: Circle())
+            ChromeGroup {
+                HStack(spacing: Theme.Space.s8) {
+                    ModelStatusChip()
+                    Button { showingSettings = true } label: {
+                        Image(systemName: "gearshape")
+                            .font(.body.weight(.medium))
+                            .foregroundStyle(Theme.label)
+                            .frame(width: 44, height: 44)
+                            .contentShape(Circle())
+                            .floatingChrome(Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .help("Settings")
+                }
             }
-            .buttonStyle(.plain)
-            .help("Settings")
         }
         .animation(.easeOut(duration: 0.15), value: searchFocused)
     }
@@ -210,24 +251,26 @@ struct RootView: View {
     // MARK: Bottom: add + ask
 
     private var bottomBar: some View {
-        HStack(alignment: .bottom, spacing: 12) {
-            CaptureButton()
-            HStack(spacing: 8) {
-                Image(systemName: "sparkles").foregroundStyle(Color.accentColor)
-                TextField(llm.isReady ? "Ask your brain anything…" : "Ask your brain (load a model in Settings)", text: $question)
-                    .textFieldStyle(.plain)
-                    .onSubmit(ask)
-                Button(action: ask) {
-                    Image(systemName: "arrow.up.circle.fill").font(.title2)
+        ChromeGroup(spacing: Theme.Space.s16) {
+            HStack(alignment: .bottom, spacing: Theme.Space.s12) {
+                CaptureButton()
+                HStack(spacing: Theme.Space.s8) {
+                    Image(systemName: "sparkles").foregroundStyle(Theme.accentInk)
+                    TextField(llm.isReady ? "Ask your brain anything…" : "Ask your brain (choose a model in Settings)", text: $question)
+                        .textFieldStyle(.plain)
+                        .foregroundStyle(Theme.label)
+                        .onSubmit(ask)
+                    Button(action: ask) {
+                        Image(systemName: "arrow.up.circle.fill").font(.title2).foregroundStyle(Theme.accent)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(question.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
-                .buttonStyle(.plain)
-                .disabled(question.trimmingCharacters(in: .whitespaces).isEmpty)
+                .padding(.horizontal, Theme.Space.s16).padding(.vertical, Theme.Space.s12)
+                .floatingChrome(Capsule())
+                .frame(maxWidth: 560)
+                Spacer(minLength: 60) // room for the zoom controls
             }
-            .padding(.horizontal, 16).padding(.vertical, 12)
-            .background(.regularMaterial, in: Capsule())
-            .shadow(color: .black.opacity(0.1), radius: 10, y: 4)
-            .frame(maxWidth: 560)
-            Spacer(minLength: 60) // room for the zoom controls
         }
     }
 
@@ -241,34 +284,72 @@ struct RootView: View {
 }
 
 /// Compact status of the on-device model, shown at the top right.
+/// Names the active model (Apple Intelligence or a downloaded one) and calmly shows availability states.
 struct ModelStatusChip: View {
     @Environment(LLMService.self) private var llm
     @Environment(Librarian.self) private var librarian
+    #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var sizeClass
+    private var isCompact: Bool { sizeClass == .compact }
+    #else
+    private let isCompact = false
+    #endif
 
     var body: some View {
-        HStack(spacing: 7) {
+        HStack(spacing: Theme.Space.s8) {
+            content
+        }
+        .lineLimit(1)
+        .fixedSize()
+        .font(.caption.weight(.medium))
+        .foregroundStyle(Theme.label)
+        .padding(.horizontal, Theme.Space.s12)
+        .frame(minWidth: 44, minHeight: 44, maxHeight: 44)
+        .floatingChrome(Capsule())
+        .help(llm.isReady ? (llm.activeModelName ?? "") : AIAvailabilityNotice.message(for: llm))
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        if llm.isReady {
+            Circle().fill(Theme.statusReady).frame(width: 8, height: 8)
+            if librarian.processingCount > 0 {
+                Text("Organizing \(librarian.processingCount)…")
+            } else if !isCompact {
+                // On a narrow iPhone the dot alone says "ready"; the model name lives in Settings and the tooltip.
+                Text(llm.activeModelName ?? "Ready")
+            }
+        } else {
             switch llm.state {
-            case .ready:
-                Circle().fill(.green).frame(width: 8, height: 8)
-                Text(librarian.processingCount > 0 ? "Organizing \(librarian.processingCount)…" : (llm.loadedModel?.name ?? "Ready"))
             case .downloading(let p):
                 ProgressView(value: p).frame(width: 50)
                 Text("\(Int(p * 100))%").monospacedDigit()
             case .loading:
                 ProgressView().controlSize(.small)
-                Text("Loading model…")
-            case .notLoaded:
-                Circle().fill(.secondary).frame(width: 8, height: 8)
-                Text("No model")
+                if !isCompact { Text("Loading model…") }
             case .failed:
-                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Theme.statusWarning)
                 Text("Model error")
+            case .notLoaded, .ready:
+                appleState
             }
         }
-        .font(.caption.weight(.medium))
-        .padding(.horizontal, 12)
-        .frame(height: 42)
-        .background(.regularMaterial, in: Capsule())
+    }
+
+    /// No downloaded model is loaded: say where Apple Intelligence stands, in two or three words.
+    @ViewBuilder
+    private var appleState: some View {
+        switch llm.appleAvailability {
+        case .notReady where llm.preferAppleIntelligence:
+            ProgressView().controlSize(.small)
+            if !isCompact { Text("Getting ready…") }
+        case .notEnabled:
+            Circle().fill(Theme.labelTertiary).frame(width: 8, height: 8)
+            Text(isCompact ? "No model" : "Apple Intelligence off")
+        default:
+            Circle().fill(Theme.labelTertiary).frame(width: 8, height: 8)
+            Text("No model")
+        }
     }
 }
 
@@ -289,7 +370,7 @@ struct UploadsTray: View {
                         ProgressView().controlSize(.small)
                         Text("Adding \(working) \(working == 1 ? "item" : "items")…").font(.subheadline.weight(.semibold))
                     } else {
-                        Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+                        Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.statusReady)
                         Text("Uploads").font(.subheadline.weight(.semibold))
                     }
                     Spacer()
@@ -304,28 +385,30 @@ struct UploadsTray: View {
                         .buttonStyle(.plain)
                     }
                 }
-                .padding(12)
+                .foregroundStyle(Theme.label)
+                .padding(Theme.Space.s12)
 
                 if !collapsed {
-                    Divider()
+                    Rectangle().fill(Theme.hairline).frame(height: 1)
                     ForEach(activities.prefix(6)) { activity in
                         Button { onOpen(activity.id) } label: { row(activity) }
                             .buttonStyle(.plain)
                     }
                     if activities.count > 6 {
-                        Text("+ \(activities.count - 6) more").font(.caption).foregroundStyle(.secondary)
+                        Text("+ \(activities.count - 6) more").font(.caption).foregroundStyle(Theme.labelSecondary)
                             .padding(.horizontal, 12).padding(.vertical, 8)
                     }
                     if librarian.processingCount > working {
                         Text("Updating \(librarian.processingCount - working) older items in the background")
-                            .font(.caption).foregroundStyle(.secondary)
+                            .font(.caption).foregroundStyle(Theme.labelSecondary)
                             .padding(.horizontal, 12).padding(.bottom, 10)
                     }
                 }
             }
             .frame(width: 310)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
-            .shadow(color: .black.opacity(0.12), radius: 12, y: 5)
+            .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.Radius.panel))
+            .overlay(RoundedRectangle(cornerRadius: Theme.Radius.panel).strokeBorder(Theme.hairline))
+            .floatShadow()
             .transition(.move(edge: .trailing).combined(with: .opacity))
             .animation(.snappy, value: activities)
         }
@@ -334,34 +417,26 @@ struct UploadsTray: View {
     private func row(_ activity: Librarian.Activity) -> some View {
         HStack(spacing: 10) {
             Image(systemName: activity.symbol)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(.white)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(Theme.label)
                 .frame(width: 28, height: 28)
-                .background(Color.accentColor.gradient, in: RoundedRectangle(cornerRadius: 7))
+                .background(Theme.surfaceSunken, in: RoundedRectangle(cornerRadius: Theme.Radius.badge + 2))
             VStack(alignment: .leading, spacing: 2) {
-                Text(activity.title).font(.callout.weight(.medium)).lineLimit(1)
+                Text(activity.title).font(.callout.weight(.medium)).foregroundStyle(Theme.label).lineLimit(1)
                 Text(activity.stage.label)
                     .font(.caption)
-                    .foregroundStyle(stageColor(activity.stage))
+                    .foregroundStyle(Theme.labelSecondary)
                     .lineLimit(1)
             }
             Spacer(minLength: 0)
             switch activity.stage {
-            case .done: Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
-            case .failed: Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
-            case .waitingForModel: Image(systemName: "pause.circle.fill").foregroundStyle(.secondary)
+            case .done: Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.statusReady)
+            case .failed: Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Theme.statusWarning)
+            case .waitingForModel: Image(systemName: "pause.circle.fill").foregroundStyle(Theme.labelSecondary)
             default: ProgressView().controlSize(.small)
             }
         }
         .padding(.horizontal, 12).padding(.vertical, 8)
         .contentShape(Rectangle())
-    }
-
-    private func stageColor(_ stage: Librarian.Stage) -> Color {
-        switch stage {
-        case .failed: .orange
-        case .done: .green
-        default: .secondary
-        }
     }
 }
