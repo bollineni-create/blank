@@ -169,6 +169,8 @@ struct ItemDetailView: View {
         case .pending: "Waiting for the on-device model…"
         case .processing: "Reading and organizing…"
         case .failed: "The model couldn't organize this item. Try again."
+        case .skipped where item.kind == .video && !item.videoHasContent:
+            "Loom couldn't hear speech or read any text in this video, so there's nothing to take away yet. If Speech Recognition is off for Loom, turn it on in Settings, then tap Summarize with AI."
         case .skipped: "Auto-organize is off."
         case .done: "Nothing to summarize yet."
         }

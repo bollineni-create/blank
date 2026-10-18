@@ -124,6 +124,15 @@ final class Item {
         return parts.joined(separator: "\n\n")
     }
 
+    /// Headings Librarian writes into a video's `extractedText`.
+    static let transcriptHeading = "Transcript:"
+    static let screenTextHeading = "On-screen text:"
+
+    /// A video has something to learn from only once speech or on-screen text was read from it.
+    var videoHasContent: Bool {
+        extractedText.contains(Item.transcriptHeading) || extractedText.contains(Item.screenTextHeading)
+    }
+
     /// Short preview shown on cards.
     var preview: String {
         let source = !summary.isEmpty ? summary : (!body.isEmpty ? body : extractedText)

@@ -210,12 +210,7 @@ final class Librarian {
                 item.extractedText = await ContentExtractor.text(fromFile: stored)
             case .video:
                 setStage(item, .reading("Transcribing the video…"))
-                let info = await ContentExtractor.videoInfo(stored)
-                item.thumbnail = info.thumbnail
-                let length = ContentExtractor.formatDuration(info.duration)
-                let transcript = await ContentExtractor.transcribe(stored)
-                item.extractedText = "Video \(title)" + (length.isEmpty ? "" : ", \(length) long")
-                    + (transcript.isEmpty ? "" : "\n\nTranscript:\n" + transcript)
+                await readVideo(item, from: stored)
             default:
                 setStage(item, .reading("Reading the file…"))
                 item.extractedText = await ContentExtractor.text(fromFile: stored)
@@ -223,6 +218,20 @@ final class Librarian {
             item.aiStatus = .pending
             finishAdding(item)
         }
+    }
+
+    /// Transcribes a video and reads text off its frames. Returns why there's no transcript, if there isn't one.
+    @discardableResult
+    private func readVideo(_ item: Item, from url: URL) async -> String? {
+        let info = await ContentExtractor.videoInfo(url)
+        if item.thumbnail == nil { item.thumbnail = info.thumbnail }
+        let length = ContentExtractor.formatDuration(info.duration)
+        let read = await ContentExtractor.videoText(url)
+        var text = "Video" + (length.isEmpty ? "" : ", \(length) long")
+        if !read.transcript.isEmpty { text += "\n\n\(Item.transcriptHeading)\n" + read.transcript }
+        if !read.screenText.isEmpty { text += "\n\n\(Item.screenTextHeading)\n" + read.screenText }
+        item.extractedText = text
+        return read.speechProblem
     }
 
     func delete(_ item: Item) {
@@ -265,7 +274,12 @@ final class Librarian {
     func upgradeOldSummaries() {
         let done = AIStatus.done.rawValue
         let current = Self.aiVersion
-        let old = (try? context?.fetch(FetchDescriptor<Item>(predicate: #Predicate { $0.aiStatusRaw == done && $0.aiVersion < current }))) ?? []
+        let outdated = (try? context?.fetch(FetchDescriptor<Item>(predicate: #Predicate { $0.aiStatusRaw == done && $0.aiVersion < current }))) ?? []
+        // Videos summarized with no transcript got made-up takeaways; read them again.
+        let video = ItemKind.video.rawValue
+        let unreadVideos = ((try? context?.fetch(FetchDescriptor<Item>(predicate: #Predicate { $0.aiStatusRaw == done && $0.kindRaw == video }))) ?? [])
+            .filter { !$0.videoHasContent }
+        let old = outdated + unreadVideos
         guard !old.isEmpty else { return }
         for item in old { item.aiStatus = .pending }
         try? context?.save()
@@ -324,6 +338,20 @@ final class Librarian {
 
     private func organize(_ item: Item) async {
         item.aiStatus = .processing
+        if item.kind == .video, !item.videoHasContent, let url = item.attachmentURL {
+            // Read it again: Speech Recognition may have been allowed since, or this predates on-screen text.
+            setStage(item, .reading("Transcribing the video…"), create: false)
+            let problem = await readVideo(item, from: url)
+            guard item.videoHasContent else {
+                // A filename and a running time are nothing to learn from; the model would only make takeaways up.
+                item.summary = ""
+                item.takeaways = []
+                item.aiStatus = .skipped
+                setStage(item, .failed(problem ?? "No speech or on-screen text found in this video."), create: false)
+                try? context?.save()
+                return
+            }
+        }
         setStage(item, .summarizing, create: false)
         let text = String(item.fullText.prefix(llmInputBudget))
         guard text.trimmingCharacters(in: .whitespacesAndNewlines).count > 3 else {
@@ -343,6 +371,7 @@ final class Librarian {
         Respond with only a JSON object, no other text:
         {"title": "short descriptive title, at most 8 words", "summary": "2-3 sentences stating the main finding, argument or lesson: what the reader should learn or remember, not a description of the document", "takeaways": ["3 to 5 short, specific lessons, facts, numbers or action items from the content, each one sentence"], "tags": ["2 to 5 short lowercase topic tags"]}
         If the content is too thin to learn from, keep takeaways to what it actually says.
+        Use only facts from the content. Never write about Loom, this library or tags.
         \(existing.isEmpty ? "" : "Prefer reusing these existing tags when they fit: \(existing)")
         """
         do {
@@ -406,6 +435,7 @@ final class Librarian {
         """
         Read this saved \(kind.rawValue) and capture what is worth remembering from it.
         If the content is too thin to learn from, keep takeaways to what it actually says.
+        Use only facts from the content. Never write about Loom, this library or tags.
         Tags must name topics this content is actually about.
 
         CONTENT:
