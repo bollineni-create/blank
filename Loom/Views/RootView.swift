@@ -182,7 +182,7 @@ struct RootView: View {
                 }
                 .padding(.horizontal, Theme.Space.s16).padding(.vertical, Theme.Space.s12)
                 .floatingChrome(Capsule())
-                // The soft violet → coral light behind search. A light, not a fill: text never sits on it.
+                // The soft celadon → terracotta light behind search. A light, not a fill: text never sits on it.
                 .background(
                     Theme.glow(radius: 200)
                         .frame(width: 400, height: 400)
