@@ -80,7 +80,6 @@ struct LoomApp: App {
     var body: some Scene {
         WindowGroup {
             RootView()
-                .font(.loomBody)
                 .environment(llm)
                 .environment(librarian)
                 .environment(router)

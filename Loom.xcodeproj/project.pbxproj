@@ -29,6 +29,24 @@
 		4B11D0F0A1C2E3F405060705 /* DMSerifDisplay-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 4B11D0F0A1C2E3F405060702 /* DMSerifDisplay-Regular.ttf */; };
 		4B11D0F0A1C2E3F405060706 /* Figtree-Variable.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 4B11D0F0A1C2E3F405060703 /* Figtree-Variable.ttf */; };
 		4B11D0F0A1C2E3F405060707 /* Figtree-Variable.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 4B11D0F0A1C2E3F405060703 /* Figtree-Variable.ttf */; };
+		946E3D946CB6A27223AB81BD /* Archivo-Variable.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 03250E5985503C874A09E0BD /* Archivo-Variable.ttf */; };
+		DFCD275779FF18175FA9C2DD /* Archivo-Variable.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 03250E5985503C874A09E0BD /* Archivo-Variable.ttf */; };
+		D741D90E10300A757534544D /* BricolageGrotesque-Variable.ttf in Resources */ = {isa = PBXBuildFile; fileRef = CBD54498713B6A2EECB5EA16 /* BricolageGrotesque-Variable.ttf */; };
+		BB3F8E8B113EAD1FB9238D6A /* BricolageGrotesque-Variable.ttf in Resources */ = {isa = PBXBuildFile; fileRef = CBD54498713B6A2EECB5EA16 /* BricolageGrotesque-Variable.ttf */; };
+		079FA258CDD4889182ECA0C7 /* CormorantGaramond-Variable.ttf in Resources */ = {isa = PBXBuildFile; fileRef = A7E74EBA7BDDE0B0DC8AF046 /* CormorantGaramond-Variable.ttf */; };
+		619EF2FCB748B0B7B2819503 /* CormorantGaramond-Variable.ttf in Resources */ = {isa = PBXBuildFile; fileRef = A7E74EBA7BDDE0B0DC8AF046 /* CormorantGaramond-Variable.ttf */; };
+		C82DA8039658133C16482BD9 /* IBMPlexMono-Medium.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 8989F68D73588817C7AB65B4 /* IBMPlexMono-Medium.ttf */; };
+		2283163135C4C697EA918874 /* IBMPlexMono-Medium.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 8989F68D73588817C7AB65B4 /* IBMPlexMono-Medium.ttf */; };
+		BCDE846DB8F2928290293F09 /* IBMPlexSans-Variable.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 436C8542750D137325700B96 /* IBMPlexSans-Variable.ttf */; };
+		3F7056D3BE6D89DDCE7BF45F /* IBMPlexSans-Variable.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 436C8542750D137325700B96 /* IBMPlexSans-Variable.ttf */; };
+		51E2026B3C1A1BA5C709AB2A /* LibreCaslonText-Variable.ttf in Resources */ = {isa = PBXBuildFile; fileRef = CA956B5F9D15DCFA0AC4CA64 /* LibreCaslonText-Variable.ttf */; };
+		AC5857934203986B1D2DD996 /* LibreCaslonText-Variable.ttf in Resources */ = {isa = PBXBuildFile; fileRef = CA956B5F9D15DCFA0AC4CA64 /* LibreCaslonText-Variable.ttf */; };
+		07CDA219F3E84C977C5F7253 /* Newsreader-Variable.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 9274CFC175AD79D765D82EE7 /* Newsreader-Variable.ttf */; };
+		5849400735BE5E20FA3EED48 /* Newsreader-Variable.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 9274CFC175AD79D765D82EE7 /* Newsreader-Variable.ttf */; };
+		3FAD7EFF437625AE6304043D /* SpaceMono-Bold.ttf in Resources */ = {isa = PBXBuildFile; fileRef = E6E5164C6F9815C55A37B0AD /* SpaceMono-Bold.ttf */; };
+		70910AF9FF8E0D3AE05FF36A /* SpaceMono-Bold.ttf in Resources */ = {isa = PBXBuildFile; fileRef = E6E5164C6F9815C55A37B0AD /* SpaceMono-Bold.ttf */; };
+		9BD717DD6F6AF6235D6F3EDB /* SpaceMono-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 3D149B01EEB8053FB9F1AA6A /* SpaceMono-Regular.ttf */; };
+		9F857927665A44C9426CF73E /* SpaceMono-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 3D149B01EEB8053FB9F1AA6A /* SpaceMono-Regular.ttf */; };
 		6495ED1FA3CC3AEE78C4B13B /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 6E6E64FD9D6B923A722BBACC /* Assets.xcassets */; };
 		6E9177D7296557248E829109 /* LLMService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77B58BC735B04B17DF4ADD1D /* LLMService.swift */; };
 		7897C686E9155CFA57A7B5D6 /* AppleModelEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA38A44F42EC292AED53E4BE /* AppleModelEngine.swift */; };
@@ -40,6 +58,8 @@
 		99CB3ED344A887E515D5B311 /* ActivityDot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 481DA4356F3BCC75AB257A36 /* ActivityDot.swift */; };
 		A00ABDB4975D366E3E910437 /* ItemDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1CE78FB30B14E1B81016F21 /* ItemDetailView.swift */; };
 		A045DC7EC7C3FDBA9D7A48D5 /* CaptureButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2F0CAE394504891A020B551 /* CaptureButton.swift */; };
+		7A11C0DE0A1B2C3D4E5F6072 /* Themes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A11C0DE0A1B2C3D4E5F6071 /* Themes.swift */; };
+		7A11C0DE0A1B2C3D4E5F6073 /* Themes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A11C0DE0A1B2C3D4E5F6071 /* Themes.swift */; };
 		A1F4374AC45F26C04905138C /* DesignTokens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F45EDFA94490EC399769C28 /* DesignTokens.swift */; };
 		B4D8C65EE07AEC641636B10B /* AskView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92EF0C77CDCE3BCE3F03D698 /* AskView.swift */; };
 		C50308E77E669A8DDA2F03B9 /* Librarian.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1B54E41521299C50BE3D37E /* Librarian.swift */; };
@@ -52,6 +72,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		7A11C0DE0A1B2C3D4E5F6071 /* Themes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Themes.swift; sourceTree = "<group>"; };
 		0F45EDFA94490EC399769C28 /* DesignTokens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignTokens.swift; sourceTree = "<group>"; };
 		18DB0148C1083261EB607736 /* Loom-macOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Loom-macOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		481DA4356F3BCC75AB257A36 /* ActivityDot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityDot.swift; sourceTree = "<group>"; };
@@ -60,6 +81,15 @@
 		66584BDBEBAFB7C4B97B01B1 /* Item.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Item.swift; sourceTree = "<group>"; };
 		4B11D0F0A1C2E3F405060702 /* DMSerifDisplay-Regular.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = DMSerifDisplay-Regular.ttf; sourceTree = "<group>"; };
 		4B11D0F0A1C2E3F405060703 /* Figtree-Variable.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Figtree-Variable.ttf; sourceTree = "<group>"; };
+		03250E5985503C874A09E0BD /* Archivo-Variable.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Archivo-Variable.ttf; sourceTree = "<group>"; };
+		CBD54498713B6A2EECB5EA16 /* BricolageGrotesque-Variable.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = BricolageGrotesque-Variable.ttf; sourceTree = "<group>"; };
+		A7E74EBA7BDDE0B0DC8AF046 /* CormorantGaramond-Variable.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = CormorantGaramond-Variable.ttf; sourceTree = "<group>"; };
+		8989F68D73588817C7AB65B4 /* IBMPlexMono-Medium.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = IBMPlexMono-Medium.ttf; sourceTree = "<group>"; };
+		436C8542750D137325700B96 /* IBMPlexSans-Variable.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = IBMPlexSans-Variable.ttf; sourceTree = "<group>"; };
+		CA956B5F9D15DCFA0AC4CA64 /* LibreCaslonText-Variable.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = LibreCaslonText-Variable.ttf; sourceTree = "<group>"; };
+		9274CFC175AD79D765D82EE7 /* Newsreader-Variable.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Newsreader-Variable.ttf; sourceTree = "<group>"; };
+		E6E5164C6F9815C55A37B0AD /* SpaceMono-Bold.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = SpaceMono-Bold.ttf; sourceTree = "<group>"; };
+		3D149B01EEB8053FB9F1AA6A /* SpaceMono-Regular.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = SpaceMono-Regular.ttf; sourceTree = "<group>"; };
 		6E6E64FD9D6B923A722BBACC /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		77B58BC735B04B17DF4ADD1D /* LLMService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LLMService.swift; sourceTree = "<group>"; };
 		828346054F597B13F6AB9134 /* Loom-iOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = "Loom-iOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -118,6 +148,15 @@
 			children = (
 				4B11D0F0A1C2E3F405060702 /* DMSerifDisplay-Regular.ttf */,
 				4B11D0F0A1C2E3F405060703 /* Figtree-Variable.ttf */,
+				03250E5985503C874A09E0BD /* Archivo-Variable.ttf */,
+				CBD54498713B6A2EECB5EA16 /* BricolageGrotesque-Variable.ttf */,
+				A7E74EBA7BDDE0B0DC8AF046 /* CormorantGaramond-Variable.ttf */,
+				8989F68D73588817C7AB65B4 /* IBMPlexMono-Medium.ttf */,
+				436C8542750D137325700B96 /* IBMPlexSans-Variable.ttf */,
+				CA956B5F9D15DCFA0AC4CA64 /* LibreCaslonText-Variable.ttf */,
+				9274CFC175AD79D765D82EE7 /* Newsreader-Variable.ttf */,
+				E6E5164C6F9815C55A37B0AD /* SpaceMono-Bold.ttf */,
+				3D149B01EEB8053FB9F1AA6A /* SpaceMono-Regular.ttf */,
 			);
 			path = Fonts;
 			sourceTree = "<group>";
@@ -204,6 +243,7 @@
 			isa = PBXGroup;
 			children = (
 				0F45EDFA94490EC399769C28 /* DesignTokens.swift */,
+				7A11C0DE0A1B2C3D4E5F6071 /* Themes.swift */,
 			);
 			path = Theme;
 			sourceTree = "<group>";
@@ -290,6 +330,15 @@
 			buildActionMask = 2147483647;
 			files = (
 				7E9AB2E5D01C7095823A247B /* Assets.xcassets in Resources */,
+				9BD717DD6F6AF6235D6F3EDB /* SpaceMono-Regular.ttf in Resources */,
+				3FAD7EFF437625AE6304043D /* SpaceMono-Bold.ttf in Resources */,
+				07CDA219F3E84C977C5F7253 /* Newsreader-Variable.ttf in Resources */,
+				51E2026B3C1A1BA5C709AB2A /* LibreCaslonText-Variable.ttf in Resources */,
+				BCDE846DB8F2928290293F09 /* IBMPlexSans-Variable.ttf in Resources */,
+				C82DA8039658133C16482BD9 /* IBMPlexMono-Medium.ttf in Resources */,
+				079FA258CDD4889182ECA0C7 /* CormorantGaramond-Variable.ttf in Resources */,
+				D741D90E10300A757534544D /* BricolageGrotesque-Variable.ttf in Resources */,
+				946E3D946CB6A27223AB81BD /* Archivo-Variable.ttf in Resources */,
 				4B11D0F0A1C2E3F405060704 /* DMSerifDisplay-Regular.ttf in Resources */,
 				4B11D0F0A1C2E3F405060706 /* Figtree-Variable.ttf in Resources */,
 			);
@@ -300,6 +349,15 @@
 			buildActionMask = 2147483647;
 			files = (
 				6495ED1FA3CC3AEE78C4B13B /* Assets.xcassets in Resources */,
+				9F857927665A44C9426CF73E /* SpaceMono-Regular.ttf in Resources */,
+				70910AF9FF8E0D3AE05FF36A /* SpaceMono-Bold.ttf in Resources */,
+				5849400735BE5E20FA3EED48 /* Newsreader-Variable.ttf in Resources */,
+				AC5857934203986B1D2DD996 /* LibreCaslonText-Variable.ttf in Resources */,
+				3F7056D3BE6D89DDCE7BF45F /* IBMPlexSans-Variable.ttf in Resources */,
+				2283163135C4C697EA918874 /* IBMPlexMono-Medium.ttf in Resources */,
+				619EF2FCB748B0B7B2819503 /* CormorantGaramond-Variable.ttf in Resources */,
+				BB3F8E8B113EAD1FB9238D6A /* BricolageGrotesque-Variable.ttf in Resources */,
+				DFCD275779FF18175FA9C2DD /* Archivo-Variable.ttf in Resources */,
 				4B11D0F0A1C2E3F405060705 /* DMSerifDisplay-Regular.ttf in Resources */,
 				4B11D0F0A1C2E3F405060707 /* Figtree-Variable.ttf in Resources */,
 			);
@@ -319,6 +377,7 @@
 				A045DC7EC7C3FDBA9D7A48D5 /* CaptureButton.swift in Sources */,
 				118813B2693D7FF946A6B659 /* ContentExtractor.swift in Sources */,
 				E5C57DA47F135E728836C1CD /* DesignTokens.swift in Sources */,
+				7A11C0DE0A1B2C3D4E5F6072 /* Themes.swift in Sources */,
 				8D8C1D5FCF17FEA569458947 /* Item.swift in Sources */,
 				31F79A531A0B2BA02485B19D /* ItemDetailView.swift in Sources */,
 				0AC04DD8647E3348AE7652BF /* KnowledgeWebView.swift in Sources */,
@@ -344,6 +403,7 @@
 				4E67E1AADC9B897788AA16AD /* CaptureButton.swift in Sources */,
 				53C9D21F2720C844D3EAA3F0 /* ContentExtractor.swift in Sources */,
 				A1F4374AC45F26C04905138C /* DesignTokens.swift in Sources */,
+				7A11C0DE0A1B2C3D4E5F6073 /* Themes.swift in Sources */,
 				34CBF400B6BF44C7331107E9 /* Item.swift in Sources */,
 				A00ABDB4975D366E3E910437 /* ItemDetailView.swift in Sources */,
 				50FBEB98C73A67CF2ABD5F14 /* KnowledgeWebView.swift in Sources */,
@@ -365,7 +425,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				CODE_SIGN_ENTITLEMENTS = "Loom/Resources/Loom-macOS.entitlements";
+				CODE_SIGN_ENTITLEMENTS = "Loom/Resources/Loom-macOS-iCloud.entitlements";
 				COMBINE_HIDPI_IMAGES = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = Loom;
@@ -387,7 +447,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				CODE_SIGN_ENTITLEMENTS = "Loom/Resources/Loom-iOS.entitlements";
+				CODE_SIGN_ENTITLEMENTS = "Loom/Resources/Loom-iOS-iCloud.entitlements";
 				INFOPLIST_FILE = "Config/Loom-iOS-Info.plist";
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				GENERATE_INFOPLIST_FILE = YES;
@@ -412,7 +472,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				CODE_SIGN_ENTITLEMENTS = "Loom/Resources/Loom-iOS.entitlements";
+				CODE_SIGN_ENTITLEMENTS = "Loom/Resources/Loom-iOS-iCloud.entitlements";
 				INFOPLIST_FILE = "Config/Loom-iOS-Info.plist";
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				GENERATE_INFOPLIST_FILE = YES;
@@ -470,7 +530,7 @@
 				COPY_PHASE_STRIP = NO;
 				CURRENT_PROJECT_VERSION = 1;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = 66BLLM3ERE;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
@@ -497,7 +557,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				CODE_SIGN_ENTITLEMENTS = "Loom/Resources/Loom-macOS.entitlements";
+				CODE_SIGN_ENTITLEMENTS = "Loom/Resources/Loom-macOS-iCloud.entitlements";
 				COMBINE_HIDPI_IMAGES = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = Loom;
@@ -552,7 +612,7 @@
 				COPY_PHASE_STRIP = NO;
 				CURRENT_PROJECT_VERSION = 1;
 				DEBUG_INFORMATION_FORMAT = dwarf;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = 66BLLM3ERE;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;

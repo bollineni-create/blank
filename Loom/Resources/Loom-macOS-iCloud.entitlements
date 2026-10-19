@@ -12,7 +12,7 @@
 	<!-- iCloud sync: the library lives in this private CloudKit container on every device. -->
 	<key>com.apple.developer.icloud-container-identifiers</key>
 	<array>
-		<string>iCloud.com.personal.loom</string>
+		<string>iCloud.com.bollineni.loom</string>
 	</array>
 	<key>com.apple.developer.icloud-services</key>
 	<array>
