@@ -37,6 +37,9 @@ targetTemplates:
         INFOPLIST_KEY_NSSpeechRecognitionUsageDescription: Loom transcribes the videos you save, on this device, so it can summarize what they teach.
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
 
+# The default entitlements sign with a free Apple ID; the library stays on each device.
+# iCloud sync between iPhone and Mac needs the paid Apple Developer Program: point both
+# CODE_SIGN_ENTITLEMENTS lines at the *-iCloud.entitlements files, then rerun xcodegen.
 targets:
   Loom-iOS:
     templates: [LoomApp]

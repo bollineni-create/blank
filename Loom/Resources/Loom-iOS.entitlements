@@ -5,17 +5,5 @@
 	<!-- Lets the app use more RAM so 1-4B parameter models fit on iPhone. -->
 	<key>com.apple.developer.kernel.increased-memory-limit</key>
 	<true/>
-	<!-- iCloud sync: the library lives in this private CloudKit container on every device. -->
-	<key>com.apple.developer.icloud-container-identifiers</key>
-	<array>
-		<string>iCloud.com.personal.loom</string>
-	</array>
-	<key>com.apple.developer.icloud-services</key>
-	<array>
-		<string>CloudKit</string>
-	</array>
-	<!-- Silent pushes tell the app when the other device changed something. -->
-	<key>aps-environment</key>
-	<string>development</string>
 </dict>
 </plist>
