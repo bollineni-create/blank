@@ -6,10 +6,22 @@ struct SettingsView: View {
     @Environment(Librarian.self) private var librarian
     @Environment(SyncMonitor.self) private var sync
     @Query private var items: [Item]
+    private let themes = ThemeStore.shared
 
     var body: some View {
         @Bindable var bindableLibrarian = librarian
         Form {
+            Section {
+                ForEach(LoomTheme.all) { option in
+                    Button { themes.theme = option } label: { ThemeRow(theme: option, selected: option.id == themes.theme.id) }
+                        .buttonStyle(.plain)
+                }
+            } header: {
+                Text("Theme")
+            } footer: {
+                Text("Each theme changes the colours, type and corners everywhere in Loom, in light and dark mode.")
+            }
+
             Section {
                 LabeledContent("Status") {
                     HStack(spacing: Theme.Space.s6) {
@@ -68,6 +80,7 @@ struct SettingsView: View {
         .scrollContentBackground(.hidden)
         .background(Theme.background)
         .tint(Theme.accent)
+        .font(.loomBody)
         .navigationTitle("Settings")
         .onAppear { llm.refreshAppleAvailability() }
     }
@@ -89,6 +102,39 @@ struct SettingsView: View {
         case .unsupportedOS: "Needs iOS 26 or macOS 26"
         case .unavailable: "Unavailable"
         }
+    }
+}
+
+/// A theme in the picker: a swatch of its canvas, accent and second hue, its name in its own display face.
+private struct ThemeRow: View {
+    let theme: LoomTheme
+    let selected: Bool
+
+    var body: some View {
+        HStack(spacing: Theme.Space.s12) {
+            RoundedRectangle(cornerRadius: min(theme.corner ?? 8, 8))
+                .fill(theme.ground.color)
+                .overlay(RoundedRectangle(cornerRadius: min(theme.corner ?? 8, 8)).strokeBorder(theme.line.color, lineWidth: 1))
+                .overlay {
+                    HStack(spacing: -4) {
+                        Circle().fill(theme.accent.color)
+                        Circle().fill(theme.signal.color)
+                    }
+                    .frame(height: 14)
+                }
+                .frame(width: 44, height: 30)
+            VStack(alignment: .leading, spacing: Theme.Space.s2) {
+                Text(theme.name).font(theme.display.font(size: 17, relativeTo: .body)).foregroundStyle(Theme.label)
+                Text(theme.mood).font(.caption).foregroundStyle(Theme.labelSecondary)
+            }
+            Spacer(minLength: Theme.Space.s8)
+            if selected {
+                Image(systemName: "checkmark").font(.body.weight(.semibold)).foregroundStyle(Theme.accentInk)
+            }
+        }
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
     }
 }
 

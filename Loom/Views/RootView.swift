@@ -39,6 +39,7 @@ struct RootView: View {
         }
         .background(Theme.background)
         .tint(Theme.accent)
+        .font(.loomBody)
         #if os(macOS)
         .overlay(alignment: .topTrailing) {
             UploadsTray { id in
@@ -182,7 +183,7 @@ struct RootView: View {
                 }
                 .padding(.horizontal, Theme.Space.s16).padding(.vertical, Theme.Space.s12)
                 .floatingChrome(Capsule())
-                // The soft celadon → terracotta light behind search. A light, not a fill: text never sits on it.
+                // The theme's soft glow behind search. A light, not a fill: text never sits on it.
                 .background(
                     Theme.glow(radius: 200)
                         .frame(width: 400, height: 400)
