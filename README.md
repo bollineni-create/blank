@@ -1,22 +1,30 @@
-# Loom — a private, on-device second brain
+<p align="center"><img src="Loom/Resources/Assets.xcassets/AppIcon.appiconset/icon-mac-256.png" width="96" alt=""></p>
 
-A personal take on [Fabric](https://apps.apple.com/us/app/fabric-your-second-brain/id6449003046) for **iPhone, iPad and Mac**. All the AI runs **on your device** with Apple Intelligence (Apple's on-device Foundation Model). Nothing you save leaves the device. There are no accounts, no servers and no API keys.
+<h1 align="center">Loom</h1>
+
+<p align="center"><b>A private second brain for iPhone, iPad and Mac, with all the AI on your device.</b><br>
+Save notes, links, photos, videos, PDFs and files, and Apple Intelligence titles, summarizes and tags each one. Search by meaning, ask questions of your library, and watch your ideas form a web.</p>
+
+<p align="center"><a href="#build-and-run">Build and run</a> · <a href="#install-on-your-mac">Install on your Mac</a> · <a href="#sharing-one-library-between-mac-and-iphone-icloud">iCloud sync</a></p>
+
+Loom is a personal take on [Fabric](https://apps.apple.com/us/app/fabric-your-second-brain/id6449003046). Everything runs on Apple's on-device Foundation Model, so nothing you save leaves your devices. There are no accounts, no servers and no API keys.
 
 ## What it does
 
-| | |
-|---|---|
-| **Save anything** | Notes, links (the page text is fetched), photos and screenshots (on-device OCR), PDFs (text plus OCR for scans) and any other file. You can add things with the + menu, paste (⌘V on Mac), or drag and drop. |
-| **Auto-organize** | Apple Intelligence writes a title, a 1–3 sentence summary and topic tags for each item. It reuses your existing tags so they stay consistent. |
-| **Semantic search** | Search matches meaning as well as keywords. It uses Apple's built-in sentence embeddings, so it works offline even without Apple Intelligence. |
-| **Ask your library** | Chat with your stuff. Answers are grounded in your saved items and cite them as `[1]`, `[2]`, and each source is a tappable link. Chats are saved. |
-| **Spaces and tags** | Folders ("Spaces"), auto tags, favorites, and filters by type. |
-| **Themes** | Eleven looks in **Settings → Theme**: the original Loom and ten design languages from the Loom Design Languages system (Paper & Ink, Herbarium, Observatory, Blueprint, Terrazzo, Swiss Index, Kiln, Lamplight, Riso, Mist). Each is a whole language, in light and dark mode: colours, display, body and label type, corners, tile depth (soft light, shelf shadows, ruled and flat, hard offset prints, frosted glass), icon weight and motion, and its own map: underlined words on ruled paper, specimen labels, stars in a night sky, drafted boxes on grid paper, chunky chips on speckled stone, Swiss blocks, glazed pebbles on thrown rings, words in lamplight, misprinted tags over halftone, frosted pills in mist. Kiln is the default. |
+- **Save anything.** Notes, links (Loom fetches the page text), photos and screenshots (read with on-device OCR), videos (speech transcribed on the device, plus any text shown on screen), PDFs (text, and OCR for scans) and any other file. Add things from the + menu, by pasting (⌘V on Mac), or by drag and drop.
+- **Auto-organize.** Apple Intelligence writes a title, a summary of one to three sentences and topic tags for each item. It reuses the tags you already have, so they stay consistent.
+- **Semantic search.** Search matches meaning as well as keywords. It uses Apple's built-in sentence embeddings, so it works offline even without Apple Intelligence.
+- **Ask your library.** Chat with what you've saved. Answers come from your items and cite them as `[1]`, `[2]`, and each source is a link you can tap. Chats are kept.
+- **The knowledge web.** A live map of your library: tags and spaces are concepts, your items hang off them, and the whole thing settles into shape as you save more.
+- **Spaces and tags.** Folders ("Spaces"), automatic tags, favorites, and filters by type.
+- **Shortcuts and Siri.** "Save to Loom", "Ask Loom", "Search Loom", "Open Item" and "New Note" work from the Shortcuts app, Siri and Spotlight.
+- **Eleven themes.** Pick one in **Settings → Theme**: the original Loom and ten design languages (Paper & Ink, Herbarium, Observatory, Blueprint, Terrazzo, Swiss Index, Kiln, Lamplight, Riso, Mist). Each is a whole language in light and dark mode: colours, display, body and label type, corners, tile depth, icon weight, motion, and its own look for the map, from underlined words on ruled paper to stars in a night sky or frosted pills in mist. Kiln is the default.
+- **One library everywhere.** With iCloud set up, the Mac and the iPhone share one library through your private iCloud database.
 
 ## Requirements
 
-- Xcode 26 or newer, on an Apple silicon Mac
-- iOS 17+ / macOS 14+ to run the app. The AI features (organizing and Ask) need **iOS 26 / macOS 26 on a device with Apple Intelligence turned on**. Without it, saving, search and the map still work.
+- Xcode 26 or newer, on an Apple silicon Mac.
+- iOS 17+ or macOS 14+ to run the app. Organizing and Ask need **iOS 26 or macOS 26 on a device with Apple Intelligence turned on**. Without it, saving, search and the map still work.
 
 ## Build and run
 
@@ -26,16 +34,25 @@ A personal take on [Fabric](https://apps.apple.com/us/app/fabric-your-second-bra
 open Loom.xcodeproj
 ```
 
-If you change `project.yml`, regenerate the project with `brew install xcodegen` (one-time) and `xcodegen generate`.
-
-1. In Xcode, select the **Loom-iOS** or **Loom-macOS** target, go to **Signing & Capabilities**, and check the Team. The project is set to the paid team `66BLLM3ERE` with iCloud sync on. To build with a free Apple ID instead, pick your own team and point `CODE_SIGN_ENTITLEMENTS` back at the plain `Loom-iOS.entitlements` / `Loom-macOS.entitlements` (a free team can't sign iCloud).
+1. Select the **Loom-iOS** or **Loom-macOS** target, go to **Signing & Capabilities**, and check the Team. The project uses the paid team `66BLLM3ERE` with iCloud sync on. To build with a free Apple ID, pick your own team and point `CODE_SIGN_ENTITLEMENTS` back at the plain `Loom-iOS.entitlements` / `Loom-macOS.entitlements` (a free team can't sign iCloud).
 2. Press ⌘R.
 
-Note for iPhone: with a free Apple ID, apps you sideload expire after 7 days. Re-run from Xcode to refresh. A paid developer account lasts a year.
+If you change `project.yml`, regenerate the project with `brew install xcodegen` (one time) and `xcodegen generate`.
+
+On iPhone, apps sideloaded with a free Apple ID expire after 7 days; run again from Xcode to refresh. A paid developer account lasts a year.
+
+### Keyboard (Mac)
+
+| Key | Does |
+| --- | --- |
+| `⌘N` | New note |
+| `⇧⌘L` | Save a link |
+| `⌘V` | Paste anything into the library |
+| `⌘,` | Settings |
 
 ## Install on your Mac
 
-To get Loom into your Applications folder, double-click **Install Loom.command** in the repository folder in Finder. It gets the latest Loom from GitHub, builds it, installs it in /Applications with iCloud sync on, and opens it. After that you can open it from the Dock, Launchpad or Spotlight like any other app. To update, double-click it again.
+Double-click **Install Loom.command** in the repository folder in Finder. It gets the latest Loom from GitHub, builds it, installs it in /Applications with iCloud sync on, and opens it. After that, open it from the Dock, Launchpad or Spotlight like any other app. To update, double-click it again.
 
 It always installs the latest `main`. Edits made on the Mac are put aside in a git stash (`git stash pop` brings them back), and commits that aren't on GitHub are kept on a `loom-backup-…` branch. Offline, it installs the copy that's there. For updates to work, get the folder with `git clone https://github.com/bollineni-create/blank.git` rather than as a zip.
 
@@ -46,43 +63,59 @@ The same build from Terminal, without the update step:
 ./scripts/install-mac.sh --no-install  # builds only, into build/
 ```
 
-It needs Xcode. It signs with the project's team (`66BLLM3ERE`) and turns on iCloud, so the installed app shares one library with the iPhone. Run it again after you pull changes to update the installed app. To build for a different team, use `LOOM_TEAM=<team id> ./scripts/install-mac.sh`. To build without any team (ad-hoc signed, no iCloud, its own library), use `LOOM_TEAM= ./scripts/install-mac.sh`.
+It signs with the project's team (`66BLLM3ERE`) and turns on iCloud, so the installed app shares one library with the iPhone. For a different team, use `LOOM_TEAM=<team id> ./scripts/install-mac.sh`. To build without any team (ad-hoc signed, no iCloud, its own library), use `LOOM_TEAM= ./scripts/install-mac.sh`.
 
 ## Sharing one library between Mac and iPhone (iCloud)
 
-The library syncs through your private iCloud database (container `iCloud.com.bollineni.loom`). If it isn't set up, each device silently keeps its own library. **Settings → iCloud sync** on each device shows whether sync is on, and if not, why.
+The library syncs through your private iCloud database (container `iCloud.com.bollineni.loom`). If that isn't set up, each device quietly keeps its own library. **Settings → iCloud sync** on each device shows whether sync is on, and if not, why.
 
-For sync to work:
+For sync to work you need:
 
-1. **A paid Apple Developer Program team.** A free Apple ID can't sign apps with iCloud. The project is set up for team `66BLLM3ERE` with the `-iCloud` entitlements on both targets; with a free team, switch `CODE_SIGN_ENTITLEMENTS` in `project.yml` back to the plain files and run `xcodegen generate`, and each device keeps its own library.
-2. **The same team on both targets.** In Xcode, open **Signing & Capabilities** for **Loom-iOS** and **Loom-macOS**, choose the same team, and check that the **iCloud** capability lists the `iCloud.com.bollineni.loom` container on both. Container names are unique across all developers. If Xcode says the name is taken, pick another one (for example `iCloud.com.yourname.loom`), and change it in both `-iCloud` entitlements files and in `SyncMonitor.containerID`.
+1. **A paid Apple Developer Program team.** A free Apple ID can't sign apps with iCloud. Both targets use team `66BLLM3ERE` with the `-iCloud` entitlements; with a free team, switch `CODE_SIGN_ENTITLEMENTS` in `project.yml` back to the plain files and run `xcodegen generate`.
+2. **The same team on both targets.** In **Signing & Capabilities** for **Loom-iOS** and **Loom-macOS**, choose the same team and check that the **iCloud** capability lists `iCloud.com.bollineni.loom` on both. Container names are unique across all developers; if Xcode says it's taken, pick another (for example `iCloud.com.yourname.loom`) and change it in both `-iCloud` entitlements files and in `SyncMonitor.containerID`.
 3. **The same Apple Account** signed in to iCloud on the Mac and the iPhone.
-4. **The same iCloud environment.** Builds you run from Xcode use the *development* environment. TestFlight and App Store builds use *production*. The two never see each other's data, so run both from Xcode (or ship both through TestFlight after deploying the schema in the CloudKit Console).
+4. **The same iCloud environment.** Builds run from Xcode use *development*; TestFlight and App Store builds use *production*. The two never see each other's data, so run both from Xcode, or ship both through TestFlight after deploying the schema in the CloudKit Console.
 
 The first sync can take a few minutes, and large attachments take longer. The iOS Simulator only syncs when the app opens, because it gets no push notifications.
 
-## Project layout
+## How it's put together
 
 ```
 Loom/
-  App/LoomApp.swift            app entry, SwiftData container, Mac menu commands
-  Models/Item.swift            Item, Space, Conversation, ChatMessage (SwiftData)
+  App/LoomApp.swift             app entry, SwiftData container, Mac menu commands
+  Models/Item.swift             Item, Space, Conversation, ChatMessage (SwiftData)
+  Intents/LoomIntents.swift     Shortcuts, Siri and Spotlight actions
   Services/
-    LLMService.swift           Apple Intelligence availability and streaming generation
-    AppleModelEngine.swift     Foundation Models calls (plain answers and guided organizing)
-    Librarian.swift            saving items + the background AI organizing queue
-    ContentExtractor.swift     link fetching, HTML→text, Vision OCR, PDF text, thumbnails
-    SearchIndex.swift          NLEmbedding vectors + keyword hybrid ranking
-    AttachmentStore.swift      copies of imported files
-    SyncMonitor.swift          reports whether iCloud sync is running, and why not
-  Views/                       Root (sidebar), Library grid, Item detail, Ask chat, Settings
-project.yml                    XcodeGen spec (iOS + macOS targets)
+    LLMService.swift            Apple Intelligence availability and streaming generation
+    AppleModelEngine.swift      Foundation Models calls (plain answers and guided organizing)
+    Librarian.swift             saving items and the background organizing queue
+    ContentExtractor.swift      link fetching, HTML to text, Vision OCR, PDF text, video transcripts, thumbnails
+    SearchIndex.swift           NLEmbedding vectors plus keyword hybrid ranking
+    AttachmentStore.swift       copies of imported files
+    SyncMonitor.swift           whether iCloud sync is running, and why not
+  Theme/                        design tokens and the eleven themes
+  Views/                        sidebar, library grid, item detail, Ask chat, knowledge web, settings
+  Resources/                    icons, bundled fonts, entitlements
+project.yml                     XcodeGen spec (iOS and macOS targets)
+scripts/install-mac.sh          build and install on the Mac
 ```
 
-Data is stored in the app's sandbox and synced through iCloud when it's set up: the SwiftData store and `Application Support/Attachments`.
+Plain SwiftUI and SwiftData, with no third-party packages. Apple's frameworks do the rest: Foundation Models for writing and answering, NaturalLanguage for embeddings, Vision for OCR, PDFKit for documents, Speech and AVFoundation for videos, and CloudKit for sync.
+
+**Where your data lives.** In the app's sandbox: the SwiftData store and `Application Support/Attachments`. Both sync through iCloud when it's set up, and go nowhere else.
+
+**How search ranks.** Each item's title, summary and text become a sentence-embedding vector on the device. A query is scored by how close its meaning is, blended with plain keyword matches, so both "that article about sleep" and an exact phrase find what you want.
+
+**How Ask answers.** Your question pulls the most relevant items from the search index, and those are handed to the on-device model as numbered sources. The model answers from them and cites them inline, so claims point back to something you saved. When your library doesn't hold the answer, it says so first, then helps from general knowledge.
 
 ## Ideas for next steps
 
-- A share extension, so you can save straight from Safari or any app (needs an App Group to share the database)
-- Voice notes with on-device transcription (Speech framework)
-- A vision-language model to describe photos that have no text
+- A share extension, so you can save straight from Safari or any app (needs an App Group to share the database).
+- Voice notes with on-device transcription.
+- A vision-language model to describe photos that have no text.
+
+## Credits
+
+- **AI:** Apple Intelligence and the Foundation Models framework, entirely on the device.
+- **Fonts:** Archivo, Bricolage Grotesque, Cormorant Garamond, DM Serif Display, Figtree, IBM Plex Sans and Mono, Libre Caslon Text, Newsreader and Space Mono, bundled under the SIL Open Font License (licence files in `Loom/Resources/Fonts`).
+- **Inspiration:** [Fabric](https://apps.apple.com/us/app/fabric-your-second-brain/id6449003046).
