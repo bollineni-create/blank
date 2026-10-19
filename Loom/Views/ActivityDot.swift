@@ -28,7 +28,8 @@ enum ActivityLevel {
     }
 }
 
-/// The status button on iPhone: just a coloured dot. Tap it to see each file's progress and cancel work.
+/// The status button: a coloured dot, with a word or two beside it on the Mac. Tap it to see each file's
+/// progress, cancel work, and retry or remove files that failed.
 struct ActivityDot: View {
     @Environment(Librarian.self) private var librarian
     @Environment(LLMService.self) private var llm
@@ -37,20 +38,32 @@ struct ActivityDot: View {
 
     var body: some View {
         let level = ActivityLevel.current(librarian, llm)
+        let headline = ActivityPanel.headline(level, librarian)
         Button { showingPanel = true } label: {
-            Circle()
-                .fill(level.color)
-                .frame(width: 14, height: 14)
-                .phaseAnimator([false, true], trigger: level) { dot, phase in
-                    // A gentle pulse while something is happening.
-                    dot.scaleEffect(level == .adding || level == .thinking ? (phase ? 1.25 : 0.9) : 1)
-                } animation: { _ in .easeInOut(duration: 0.8) }
-                .frame(width: 44, height: 44)
-                .contentShape(Theme.pillShape)
-                .floatingChrome(Theme.pillShape)
+            HStack(spacing: Theme.Space.s8) {
+                Circle()
+                    .fill(level.color)
+                    .frame(width: 14, height: 14)
+                    .phaseAnimator([false, true], trigger: level) { dot, phase in
+                        // A gentle pulse while something is happening.
+                        dot.scaleEffect(level == .adding || level == .thinking ? (phase ? 1.25 : 0.9) : 1)
+                    } animation: { _ in .easeInOut(duration: 0.8) }
+                #if os(macOS)
+                Text(label(level, headline: headline))
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(Theme.label)
+                    .lineLimit(1)
+                    .fixedSize()
+                #endif
+            }
+            .padding(.horizontal, Theme.Space.s12)
+            .frame(minWidth: 44, minHeight: 44, maxHeight: 44)
+            .contentShape(Theme.pillShape)
+            .floatingChrome(Theme.pillShape)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(ActivityPanel.headline(level, librarian))
+        .help(headline)
+        .accessibilityLabel(headline)
         .popover(isPresented: $showingPanel, arrowEdge: .top) {
             ActivityPanel { id in
                 showingPanel = false
@@ -58,6 +71,15 @@ struct ActivityDot: View {
             }
             .presentationCompactAdaptation(.popover)
         }
+    }
+
+    /// Beside the dot on the Mac: the model's name when all is quiet, otherwise what's happening.
+    private func label(_ level: ActivityLevel, headline: String) -> String {
+        let failed = librarian.activities.filter(\.stage.isFailed).count
+        if level == .ready, failed > 0 { return "\(failed) \(failed == 1 ? "file needs" : "files need") attention" }
+        if level == .ready { return llm.activeModelName ?? "Ready" }
+        if level == .unavailable { return "No model" }
+        return headline
     }
 }
 
@@ -150,7 +172,29 @@ struct ActivityPanel: View {
             .contentShape(Rectangle())
             .onTapGesture { if !activity.isPlaceholder { onOpen(activity.id) } }
             Spacer(minLength: 0)
-            if !activity.stage.isFinished && !activity.isPlaceholder {
+            if activity.stage.isFailed {
+                // Try again, or let it go (and the item with it, if it made it into the library).
+                Button { withAnimation(Theme.motion) { librarian.retry(activity.id) } } label: {
+                    Image(systemName: "arrow.clockwise.circle.fill")
+                        .font(.title3)
+                        .foregroundStyle(Theme.accentInk)
+                        .frame(width: 32, height: 32)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Try again")
+                .accessibilityLabel("Retry \(activity.title)")
+                Button { withAnimation(Theme.motion) { librarian.discard(activity.id) } } label: {
+                    Image(systemName: "trash.circle.fill")
+                        .font(.title3)
+                        .foregroundStyle(Theme.destructive)
+                        .frame(width: 32, height: 32)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Remove")
+                .accessibilityLabel("Remove \(activity.title)")
+            } else if !activity.stage.isFinished && !activity.isPlaceholder {
                 Button { withAnimation(Theme.motion) { librarian.cancel(activity.id) } } label: {
                     Image(systemName: "xmark.circle.fill")
                         .font(.title3)
@@ -195,7 +239,9 @@ struct ActivityPanel: View {
         case .thinking:
             let n = max(librarian.processingCount, librarian.activities.filter { $0.stage == .queued || $0.stage == .summarizing }.count)
             return n > 0 ? "AI is organizing \(n) \(n == 1 ? "item" : "items")…" : gettingReady
-        case .ready: return "All caught up"
+        case .ready:
+            let failed = librarian.activities.filter(\.stage.isFailed).count
+            return failed > 0 ? "\(failed) \(failed == 1 ? "file needs" : "files need") attention" : "All caught up"
         case .unavailable: return "No AI model"
         }
     }

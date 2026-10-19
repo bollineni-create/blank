@@ -70,6 +70,12 @@ final class Librarian {
     private var organizing: (id: UUID, task: Task<Void, Never>)?
     /// Cancelled items, so late stage updates don't bring them back into the list.
     private var cancelledIDs: Set<UUID> = []
+    /// Files whose copy failed before they joined the library: how to try again, and how to let go.
+    private struct FailedAdd {
+        let again: () -> Void
+        let cleanUp: () -> Void
+    }
+    private var failedAdds: [UUID: FailedAdd] = [:]
     private var backfillRunning = false
     /// Asked to copy files again while a copy was running.
     private var backfillAgain = false
@@ -97,10 +103,12 @@ final class Librarian {
             }
         }
 
-        /// Done or failed: the tray entry fades out on its own.
-        var isTerminal: Bool {
+        /// Done: the tray entry fades out on its own. Failed ones stay until they're retried or removed.
+        var isTerminal: Bool { self == .done }
+
+        var isFailed: Bool {
             if case .failed = self { return true }
-            return self == .done
+            return false
         }
 
         var isFinished: Bool {
@@ -185,7 +193,30 @@ final class Librarian {
     }
 
     func clearFinishedActivities() {
+        for activity in activities where activity.stage.isFailed { failedAdds.removeValue(forKey: activity.id)?.cleanUp() }
         activities.removeAll { $0.stage.isFinished }
+    }
+
+    /// Tries a failed entry again: a file that couldn't be copied is copied again; one the AI couldn't
+    /// organize, or a video with nothing to hear, goes back through the AI.
+    func retry(_ id: UUID) {
+        activities.removeAll { $0.id == id }
+        if let failed = failedAdds.removeValue(forKey: id) {
+            failed.again()
+        } else if let item = fetchItem(id) {
+            reorganize(item)
+        }
+    }
+
+    /// Removes a failed entry, and the item with it if it made it into the library.
+    func discard(_ id: UUID) {
+        activities.removeAll { $0.id == id }
+        failedAdds.removeValue(forKey: id)?.cleanUp()
+        if let item = fetchItem(id) { delete(item) }
+    }
+
+    private func fetchItem(_ id: UUID) -> Item? {
+        try? context?.fetch(FetchDescriptor<Item>(predicate: #Predicate { $0.id == id })).first
     }
 
     /// When a model finishes loading, items that were waiting move on.
@@ -284,19 +315,26 @@ final class Librarian {
             await Self.copies.acquire()
             let name = await Task.detached(priority: .userInitiated) { try? copy() }.value
             Self.copies.release()
-            if let removeSource { AttachmentStore.removeTemporary(removeSource) }
             if cancelledIDs.contains(item.id) {
                 // Cancelled before it joined the library: nothing to keep.
                 AttachmentStore.delete(name)
+                if let removeSource { AttachmentStore.removeTemporary(removeSource) }
                 cancelledIDs.remove(item.id)
                 addTasks[item.id] = nil
                 return
             }
             guard let name else {
+                // The source stays where it is so Retry can copy it again; Remove lets it go.
                 addTasks[item.id] = nil
+                failedAdds[item.id] = FailedAdd(
+                    again: { [weak self] in
+                        self?.importAttachment(into: item, named: displayName, removeSource: removeSource, copy: copy)
+                    },
+                    cleanUp: { if let removeSource { AttachmentStore.removeTemporary(removeSource) } })
                 setStage(id: item.id, title: displayName, symbol: symbol, .failed("Couldn't copy \(displayName)"))
                 return
             }
+            if let removeSource { AttachmentStore.removeTemporary(removeSource) }
             item.attachmentName = name
             insert(item)
             await readAttachment(item)

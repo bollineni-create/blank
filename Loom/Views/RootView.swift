@@ -225,15 +225,12 @@ struct RootView: View {
 
             ChromeGroup {
                 HStack(spacing: Theme.Space.s8) {
-                    #if os(iOS)
-                    // On iPhone and iPad the status is one coloured dot; its panel lists each file's progress.
+                    // One coloured dot (with the model's name beside it on the Mac). Its panel lists each
+                    // file's progress, with cancel, and retry or remove for files that failed.
                     ActivityDot { id in
                         selectedItem = id
                         focusRequest = id
                     }
-                    #else
-                    ModelStatusChip()
-                    #endif
                     Button { showingSettings = true } label: {
                         Image(systemName: "gearshape")
                             .font(.body)
@@ -297,64 +294,6 @@ struct RootView: View {
     }
 }
 
-/// Compact status of the on-device model, shown at the top right.
-/// Names the active model and calmly shows availability states.
-struct ModelStatusChip: View {
-    @Environment(LLMService.self) private var llm
-    @Environment(Librarian.self) private var librarian
-    #if os(iOS)
-    @Environment(\.horizontalSizeClass) private var sizeClass
-    private var isCompact: Bool { sizeClass == .compact }
-    #else
-    private let isCompact = false
-    #endif
-
-    var body: some View {
-        HStack(spacing: Theme.Space.s8) {
-            content
-        }
-        .lineLimit(1)
-        .fixedSize()
-        .font(.caption.weight(.medium))
-        .foregroundStyle(Theme.label)
-        .padding(.horizontal, Theme.Space.s12)
-        .frame(minWidth: 44, minHeight: 44, maxHeight: 44)
-        .floatingChrome(Theme.pillShape)
-        .help(llm.isReady ? (llm.activeModelName ?? "") : AIAvailabilityNotice.message(for: llm))
-    }
-
-    @ViewBuilder
-    private var content: some View {
-        if llm.isReady {
-            Circle().fill(Theme.statusReady).frame(width: 8, height: 8)
-            if librarian.processingCount > 0 {
-                Text("Organizing \(librarian.processingCount)…")
-            } else if !isCompact {
-                // On a narrow iPhone the dot alone says "ready"; the model name lives in Settings and the tooltip.
-                Text(llm.activeModelName ?? "Ready")
-            }
-        } else {
-            appleState
-        }
-    }
-
-    /// Apple Intelligence can't answer yet: say where it stands, in two or three words.
-    @ViewBuilder
-    private var appleState: some View {
-        switch llm.appleAvailability {
-        case .notReady:
-            ProgressView().controlSize(.small)
-            if !isCompact { Text("Getting ready…") }
-        case .notEnabled:
-            Circle().fill(Theme.labelTertiary).frame(width: 8, height: 8)
-            Text(isCompact ? "No model" : "Apple Intelligence off")
-        default:
-            Circle().fill(Theme.labelTertiary).frame(width: 8, height: 8)
-            Text("No model")
-        }
-    }
-}
-
 /// Live list of what's being added: copying, reading, transcribing, summarizing.
 struct UploadsTray: View {
     @Environment(Librarian.self) private var librarian
@@ -368,9 +307,13 @@ struct UploadsTray: View {
         if !activities.isEmpty {
             VStack(alignment: .leading, spacing: 0) {
                 HStack(spacing: 8) {
+                    let failed = activities.filter(\.stage.isFailed).count
                     if working > 0 {
                         ProgressView().controlSize(.small)
                         Text("Adding \(working) \(working == 1 ? "item" : "items")…").font(.subheadline.weight(.semibold))
+                    } else if failed > 0 {
+                        Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Theme.statusWarning)
+                        Text("\(failed) \(failed == 1 ? "file needs" : "files need") attention").font(.subheadline.weight(.semibold))
                     } else {
                         Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.statusReady)
                         Text("Uploads").font(.subheadline.weight(.semibold))
@@ -392,10 +335,7 @@ struct UploadsTray: View {
 
                 if !collapsed {
                     Rectangle().fill(Theme.hairline).frame(height: 1)
-                    ForEach(activities.prefix(6)) { activity in
-                        Button { onOpen(activity.id) } label: { row(activity) }
-                            .buttonStyle(.plain)
-                    }
+                    ForEach(activities.prefix(6)) { activity in row(activity) }
                     if activities.count > 6 {
                         Text("+ \(activities.count - 6) more").font(.caption).foregroundStyle(Theme.labelSecondary)
                             .padding(.horizontal, 12).padding(.vertical, 8)
@@ -430,10 +370,24 @@ struct UploadsTray: View {
                     .foregroundStyle(Theme.labelSecondary)
                     .lineLimit(1)
             }
-            Spacer(minLength: 0)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+            .onTapGesture { onOpen(activity.id) }
             switch activity.stage {
             case .done: Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.statusReady)
-            case .failed: Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Theme.statusWarning)
+            case .failed:
+                Button { withAnimation(Theme.motion) { librarian.retry(activity.id) } } label: {
+                    Image(systemName: "arrow.clockwise.circle.fill").font(.title3).foregroundStyle(Theme.accentInk)
+                        .frame(width: 28, height: 28).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Try again")
+                Button { withAnimation(Theme.motion) { librarian.discard(activity.id) } } label: {
+                    Image(systemName: "trash.circle.fill").font(.title3).foregroundStyle(Theme.destructive)
+                        .frame(width: 28, height: 28).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Remove")
             case .waitingForModel: Image(systemName: "pause.circle.fill").foregroundStyle(Theme.labelSecondary)
             default: ProgressView().controlSize(.small)
             }
