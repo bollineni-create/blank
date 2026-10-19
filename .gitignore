@@ -1,7 +1,0 @@
-*.xcodeproj/
-xcuserdata/
-DerivedData/
-build/
-.DS_Store
-.swiftpm/
-LlamaKit/llama.xcframework/
