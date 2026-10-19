@@ -10,6 +10,8 @@ final class LoomServices {
     let container: ModelContainer
     let llm: LLMService
     let librarian: Librarian
+    /// Whether iCloud is actually syncing the library, and why not.
+    let sync: SyncMonitor
     /// Requests from App Intents that the main page acts on.
     let router = LoomRouter()
 
@@ -17,6 +19,8 @@ final class LoomServices {
         LLMService.configureEnvironment()
         llm = LLMService()
         librarian = Librarian(llm: llm)
+        // Listens before the library opens, so it hears iCloud's first setup report.
+        sync = SyncMonitor()
         do {
             // Syncs through the private iCloud database named in the entitlements, so the Mac and
             // iPhone share one library. Without iCloud (signed out, unsigned build) it stays on this device.
@@ -60,6 +64,7 @@ struct LoomApp: App {
     @State private var llm: LLMService
     @State private var librarian: Librarian
     @State private var router: LoomRouter
+    @State private var sync: SyncMonitor
     @Environment(\.scenePhase) private var scenePhase
     let container: ModelContainer
 
@@ -68,6 +73,7 @@ struct LoomApp: App {
         _llm = State(initialValue: services.llm)
         _librarian = State(initialValue: services.librarian)
         _router = State(initialValue: services.router)
+        _sync = State(initialValue: services.sync)
         container = services.container
         LoomShortcuts.updateAppShortcutParameters()
     }
@@ -78,6 +84,7 @@ struct LoomApp: App {
                 .environment(llm)
                 .environment(librarian)
                 .environment(router)
+                .environment(sync)
                 .onAppear { LoomServices.shared.start() }
                 .onChange(of: llm.isReady) { _, ready in
                     if ready { librarian.modelBecameReady() }
@@ -104,6 +111,7 @@ struct LoomApp: App {
             SettingsView()
                 .environment(llm)
                 .environment(librarian)
+                .environment(sync)
                 .modelContainer(container)
                 .frame(width: 560, height: 620)
         }
