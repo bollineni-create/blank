@@ -205,7 +205,6 @@ final class Librarian {
             item.aiStatus = .pending
             finishAdding(item)
         }
-        return item
     }
 
     /// Imports what was saved from the Share menu while Loom was closed or in the background.
@@ -280,6 +279,7 @@ final class Librarian {
             item.aiStatus = .pending
             finishAdding(item)
         }
+        return item
     }
 
     /// Transcribes a video and reads text off its frames. Returns why there's no transcript, if there isn't one.
