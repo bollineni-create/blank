@@ -1,38 +1,44 @@
 import SwiftUI
+import CoreText
 
-/// Loom's design tokens, mirroring the published design system (project/tokens.json):
-/// warm paper, white tiles with hairlines, serif headlines, and coral + violet only where Loom speaks.
+/// Loom's design tokens in the Kiln language from the published design system (Loom Design Languages):
+/// bisque clay, terracotta glaze, a celadon second hue, DM Serif Display titles over Figtree text.
 enum Theme {
     // MARK: Color
 
-    /// The warm paper canvas: the map, the side panel, every page. Never pure white.
-    static let background = Color(light: 0xfaf8f5, dark: 0x141312)
-    /// Raised tiles on background: item cards, branch pills, search results, panels.
-    static let surface = Color(light: 0xffffff, dark: 0x1f1d1b)
+    /// `kiln-ground`: the bisque canvas behind the map, the side panel, every page.
+    static let background = Color(light: 0xf3e9df, dark: 0x1b1411)
+    /// `kiln-surface`: raised tiles on background: item cards, branch pills, search results, panels.
+    static let surface = Color(light: 0xfbf5ef, dark: 0x261c17)
     /// Recessed fills: input fields, chips, count capsules.
-    static let surfaceSunken = Color(light: 0xf2efea, dark: 0x191816)
+    static let surfaceSunken = Color(light: 0xeadccf, dark: 0x211814)
 
-    static let label = Color(light: 0x1c1b19, dark: 0xf4f2ee)
-    static let labelSecondary = Color(light: 0x6b6862, dark: 0xa8a49d)
+    /// `kiln-ink`.
+    static let label = Color(light: 0x2b1d16, dark: 0xf3e6da)
+    /// `kiln-muted`: kinds, dates, counts.
+    static let labelSecondary = Color(light: 0x6e574a, dark: 0xb9a291)
     /// Timestamps and sizes beside a stronger label only (below 4.5:1).
-    static let labelTertiary = Color(light: 0x9b978f, dark: 0x6e6a64)
+    static let labelTertiary = Color(light: 0x9c8574, dark: 0x7d6758)
 
-    /// 1px borders on tiles, pills, panels and dividers.
-    static let hairline = Color(light: Color(hex: 0x1c1b19, opacity: 0.08), dark: Color(hex: 0xf4f2ee, opacity: 0.1))
-    static let mapDot = Color(light: Color(hex: 0x1c1b19, opacity: 0.1), dark: Color(hex: 0xf4f2ee, opacity: 0.1))
+    /// `kiln-line`: 1px borders on tiles, pills, panels and dividers.
+    static let hairline = Color(light: 0xe0cfc0, dark: 0x3b2d25)
+    static let mapDot = Color(light: Color(hex: 0x2b1d16, opacity: 0.1), dark: Color(hex: 0xf3e6da, opacity: 0.1))
 
-    /// Loom coral. Fills only: capture button, prominent buttons, selection.
-    static let accent = Color(hex: 0xe84f61)
-    /// Coral for text and small symbols: citations, links, the sparkles mark.
-    static let accentInk = Color(light: 0xc4384b, dark: 0xff8a97)
-    /// Loom violet: end stop of the signature gradient and the glow.
-    static let accentViolet = Color(hex: 0x8c61f2)
-    static let onAccent = Color.white
-    /// Soft coral fill for tag chips and badges (text on it stays `label`).
-    static let accentTint = Color(light: Color(hex: 0xe84f61, opacity: 0.12), dark: Color(hex: 0xff8a97, opacity: 0.16))
+    /// `kiln-accent`, terracotta. Fills only: capture button, prominent buttons, selection.
+    static let accent = Color(light: 0xb5502c, dark: 0xe07a52)
+    /// `kiln-accent-ink`: terracotta for text and small symbols: citations, links, the sparkles mark.
+    static let accentInk = Color(light: 0x9c4223, dark: 0xf0946f)
+    /// Deeper clay: end stop of the signature gradient.
+    static let accentDeep = Color(light: 0x7e3219, dark: 0xb5502c)
+    /// `kiln-on-accent`.
+    static let onAccent = Color(light: 0xffffff, dark: 0x1b0e08)
+    /// Soft terracotta fill for tag chips and badges (text on it stays `label`).
+    static let accentTint = Color(light: Color(hex: 0xb5502c, opacity: 0.12), dark: Color(hex: 0xe07a52, opacity: 0.16))
+    /// `kiln-signal`, celadon glaze: the second hue for branches and highlights.
+    static let signal = Color(light: 0x2a7471, dark: 0x6cc2bd)
 
-    static let glowViolet = Color(light: Color(hex: 0x8c61f2, opacity: 0.28), dark: Color(hex: 0x8c61f2, opacity: 0.36))
-    static let glowCoral = Color(light: Color(hex: 0xe84f61, opacity: 0.16), dark: Color(hex: 0xe84f61, opacity: 0.22))
+    static let glowSignal = Color(light: Color(hex: 0x2a7471, opacity: 0.18), dark: Color(hex: 0x6cc2bd, opacity: 0.22))
+    static let glowAccent = Color(light: Color(hex: 0xb5502c, opacity: 0.16), dark: Color(hex: 0xe07a52, opacity: 0.2))
 
     static let statusReady = Color(light: 0x34c759, dark: 0x30d158)
     static let statusWarning = Color(light: 0xff9500, dark: 0xff9f0a)
@@ -42,22 +48,22 @@ enum Theme {
     static let favorite = Color(light: 0xffcc00, dark: 0xffd60a)
     static let destructive = Color(light: 0xff3b30, dark: 0xff453a)
 
-    /// The signature gradient (accent → accent-violet, top-left to bottom-right). Root node and capture button only.
-    static let signature = LinearGradient(colors: [accent, accentViolet], startPoint: .topLeading, endPoint: .bottomTrailing)
+    /// The signature gradient (terracotta → deep clay, top-left to bottom-right). Root node and capture button only.
+    static let signature = LinearGradient(colors: [accent, accentDeep], startPoint: .topLeading, endPoint: .bottomTrailing)
 
-    /// The light behind search and at the map center: violet into coral, then transparent.
+    /// The light behind search and at the map center: celadon into terracotta, then transparent.
     static func glow(radius: CGFloat) -> RadialGradient {
-        RadialGradient(stops: [.init(color: glowViolet, location: 0),
-                               .init(color: glowCoral, location: 0.45),
+        RadialGradient(stops: [.init(color: glowSignal, location: 0),
+                               .init(color: glowAccent, location: 0.45),
                                .init(color: .clear, location: 1)],
                        center: .center, startRadius: 0, endRadius: radius)
     }
 
-    /// Branch palette: topics and spaces take these in order and repeat after 10.
+    /// Branch palette: glazes that topics and spaces take in order, repeating after 10. Celadon leads.
     /// Only ever a dot, edge, badge or selection ring next to `label` text.
     static let branches: [Color] = [
-        Color(hex: 0xfa734a), Color(hex: 0x4085f5), Color(hex: 0x29b380), Color(hex: 0xe6529e), accentViolet,
-        Color(hex: 0x14a8bf), Color(hex: 0xf2a821), Color(hex: 0x5c6bdb), Color(hex: 0xd9404d), Color(hex: 0x6bb333),
+        signal, Color(hex: 0xc98a2b), Color(hex: 0x4f78ad), Color(hex: 0xa64d6c), Color(hex: 0x6f8f3a),
+        Color(hex: 0x7a5cae), Color(hex: 0xd06a3c), Color(hex: 0x3a9aa6), Color(hex: 0x8b6b4a), Color(hex: 0xb84a4a),
     ]
 
     static func branch(_ index: Int) -> Color {
@@ -68,10 +74,11 @@ enum Theme {
 
     enum Radius {
         static let badge: CGFloat = 6
-        static let control: CGFloat = 12
-        static let panel: CGFloat = 16
-        static let card: CGFloat = 20
-        static let sheet: CGFloat = 28
+        /// `kiln-radius` (14) on controls, panels and cards.
+        static let control: CGFloat = 14
+        static let panel: CGFloat = 14
+        static let card: CGFloat = 14
+        static let sheet: CGFloat = 22
     }
 
     // MARK: Spacing (4px scale)
@@ -95,37 +102,52 @@ enum Theme {
 
     /// Item cards on the map are this wide; the thumbnail fills the top.
     static let itemCardWidth: CGFloat = 200
+
+    // MARK: Fonts
+
+    /// Registers the bundled Kiln faces (DM Serif Display, Figtree) for this process. Safe to call more than once.
+    static func registerFonts() { _ = fontsRegistered }
+
+    private static let fontsRegistered: Void = {
+        for name in ["DMSerifDisplay-Regular", "Figtree-Variable"] {
+            guard let url = Bundle.main.url(forResource: name, withExtension: "ttf") else { continue }
+            CTFontManagerRegisterFontsForURL(url as CFURL, .process, nil)
+        }
+    }()
 }
 
 // MARK: - Type
 
 extension Font {
     /// Onboarding and empty-screen headlines. One per screen.
-    static let loomDisplay = Font.system(size: 44, weight: .regular, design: .serif)
-    /// Panel titles: an item's title, "Ask your library".
-    static let loomTitle = Font.system(.title, design: .serif)
+    static let loomDisplay = Font.custom("DM Serif Display", size: 40, relativeTo: .largeTitle)
+    /// Panel titles: an item's title, "Ask your library" (`kiln-display`).
+    static let loomTitle = Font.custom("DM Serif Display", size: 28, relativeTo: .title)
     /// "My Brain", empty-state titles, section heads.
-    static let loomTitle3 = Font.system(.title3, design: .serif)
+    static let loomTitle3 = Font.custom("DM Serif Display", size: 20, relativeTo: .title3)
+    /// Summaries, takeaways and notes (`kiln-body`); the default for text without its own font.
+    /// Figtree is one variable file whose default instance is Light, so the weight is set explicitly.
+    static let loomBody = Font.custom("Figtree", size: 15, relativeTo: .body).weight(.regular)
 }
 
 extension View {
     /// Serif voice: regular weight with slight negative tracking.
-    func serifTracking() -> some View { tracking(-0.2) }
+    func serifTracking() -> some View { tracking(-0.3) }
 }
 
 // MARK: - Elevation
 
 extension View {
-    /// Tiles at rest (`shadow-tile`) or hovered/selected (`shadow-tile-hover`).
+    /// Tiles at rest or hovered/selected: soft, low shadows like objects on a shelf.
     func tileShadow(lifted: Bool = false) -> some View {
         self
-            .shadow(color: Color(hex: 0x1c1b19, opacity: lifted ? 0.05 : 0.04), radius: lifted ? 2 : 1, y: lifted ? 2 : 1)
-            .shadow(color: Color(hex: 0x1c1b19, opacity: lifted ? 0.09 : 0.05), radius: lifted ? 18 : 10, y: lifted ? 14 : 6)
+            .shadow(color: Color(hex: 0x2b1d16, opacity: lifted ? 0.05 : 0.04), radius: lifted ? 2 : 1, y: lifted ? 2 : 1)
+            .shadow(color: Color(hex: 0x2b1d16, opacity: lifted ? 0.09 : 0.05), radius: lifted ? 18 : 10, y: lifted ? 14 : 6)
     }
 
     /// Floating chrome over the map (`shadow-float`).
     func floatShadow() -> some View {
-        shadow(color: Color(hex: 0x1c1b19, opacity: 0.1), radius: 20, y: 10)
+        shadow(color: Color(hex: 0x2b1d16, opacity: 0.1), radius: 20, y: 10)
     }
 
     /// An opaque `surface` tile with a hairline edge and a soft shadow.

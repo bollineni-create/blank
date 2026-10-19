@@ -16,6 +16,7 @@ final class LoomServices {
     let router = LoomRouter()
 
     private init() {
+        Theme.registerFonts()
         llm = LLMService()
         librarian = Librarian(llm: llm)
         // Listens before the library opens, so it hears iCloud's first setup report.
@@ -79,6 +80,7 @@ struct LoomApp: App {
     var body: some Scene {
         WindowGroup {
             RootView()
+                .font(.loomBody)
                 .environment(llm)
                 .environment(librarian)
                 .environment(router)

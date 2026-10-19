@@ -447,11 +447,11 @@ struct KnowledgeWebView: View {
             let nodes = sim.nodes
             let compact = scale < 0.42
 
-            // The violet → coral light at the map center.
+            // The celadon → terracotta light at the map center.
             let glowRadius: CGFloat = 520
             ctx.fill(Path(ellipseIn: CGRect(x: -glowRadius, y: -glowRadius, width: glowRadius * 2, height: glowRadius * 2)),
-                     with: .radialGradient(Gradient(stops: [.init(color: Theme.glowViolet, location: 0),
-                                                            .init(color: Theme.glowCoral, location: 0.45),
+                     with: .radialGradient(Gradient(stops: [.init(color: Theme.glowSignal, location: 0),
+                                                            .init(color: Theme.glowAccent, location: 0.45),
                                                             .init(color: .clear, location: 1)]),
                                            center: .zero, startRadius: 0, endRadius: glowRadius))
 
@@ -486,7 +486,7 @@ struct KnowledgeWebView: View {
             // Files: white discs with a hairline, the kind symbol and a ring in the branch color.
             // Zoomed far out they become plain branch-colored dots.
             ctx.drawLayer { layer in
-                if !compact { layer.addFilter(.shadow(color: Color(hex: 0x1c1b19, opacity: 0.12), radius: 3, x: 0, y: 1)) }
+                if !compact { layer.addFilter(.shadow(color: Color(hex: 0x2b1d16, opacity: 0.12), radius: 3, x: 0, y: 1)) }
                 for (i, node) in nodes.enumerated() {
                     guard case .item(let id) = node.kind else { continue }
                     let c = color(of: node)
@@ -562,7 +562,7 @@ struct KnowledgeWebView: View {
                 sim.pillHalfSizes[i] = CGSize(width: width / 2, height: height / 2)
             }
             ctx.drawLayer { layer in
-                layer.addFilter(.shadow(color: Color(hex: 0x1c1b19, opacity: 0.08), radius: 6, x: 0, y: 3))
+                layer.addFilter(.shadow(color: Color(hex: 0x2b1d16, opacity: 0.08), radius: 6, x: 0, y: 3))
                 for pill in pills {
                     layer.opacity = dimmed(pill.index) ? Theme.dimmedOpacity : 1
                     layer.fill(Path(roundedRect: pill.rect, cornerRadius: pill.rect.height / 2), with: .color(Theme.surface))

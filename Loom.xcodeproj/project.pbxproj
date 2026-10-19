@@ -25,6 +25,10 @@
 		4E67E1AADC9B897788AA16AD /* CaptureButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2F0CAE394504891A020B551 /* CaptureButton.swift */; };
 		50FBEB98C73A67CF2ABD5F14 /* KnowledgeWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7CB1FE6D488C2840E7DDFD4 /* KnowledgeWebView.swift */; };
 		53C9D21F2720C844D3EAA3F0 /* ContentExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B730C16E1C8CAD0A806AFAE /* ContentExtractor.swift */; };
+		4B11D0F0A1C2E3F405060704 /* DMSerifDisplay-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 4B11D0F0A1C2E3F405060702 /* DMSerifDisplay-Regular.ttf */; };
+		4B11D0F0A1C2E3F405060705 /* DMSerifDisplay-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 4B11D0F0A1C2E3F405060702 /* DMSerifDisplay-Regular.ttf */; };
+		4B11D0F0A1C2E3F405060706 /* Figtree-Variable.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 4B11D0F0A1C2E3F405060703 /* Figtree-Variable.ttf */; };
+		4B11D0F0A1C2E3F405060707 /* Figtree-Variable.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 4B11D0F0A1C2E3F405060703 /* Figtree-Variable.ttf */; };
 		6495ED1FA3CC3AEE78C4B13B /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 6E6E64FD9D6B923A722BBACC /* Assets.xcassets */; };
 		6E9177D7296557248E829109 /* LLMService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77B58BC735B04B17DF4ADD1D /* LLMService.swift */; };
 		7897C686E9155CFA57A7B5D6 /* AppleModelEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA38A44F42EC292AED53E4BE /* AppleModelEngine.swift */; };
@@ -54,6 +58,8 @@
 		56BF407E32084C0D3E60EB71 /* AttachmentStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AttachmentStore.swift; sourceTree = "<group>"; };
 		5B730C16E1C8CAD0A806AFAE /* ContentExtractor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentExtractor.swift; sourceTree = "<group>"; };
 		66584BDBEBAFB7C4B97B01B1 /* Item.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Item.swift; sourceTree = "<group>"; };
+		4B11D0F0A1C2E3F405060702 /* DMSerifDisplay-Regular.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = DMSerifDisplay-Regular.ttf; sourceTree = "<group>"; };
+		4B11D0F0A1C2E3F405060703 /* Figtree-Variable.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Figtree-Variable.ttf; sourceTree = "<group>"; };
 		6E6E64FD9D6B923A722BBACC /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		77B58BC735B04B17DF4ADD1D /* LLMService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LLMService.swift; sourceTree = "<group>"; };
 		828346054F597B13F6AB9134 /* Loom-iOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = "Loom-iOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -107,10 +113,20 @@
 			path = Intents;
 			sourceTree = "<group>";
 		};
+		4B11D0F0A1C2E3F405060701 /* Fonts */ = {
+			isa = PBXGroup;
+			children = (
+				4B11D0F0A1C2E3F405060702 /* DMSerifDisplay-Regular.ttf */,
+				4B11D0F0A1C2E3F405060703 /* Figtree-Variable.ttf */,
+			);
+			path = Fonts;
+			sourceTree = "<group>";
+		};
 		97701232024A9C8C77CB30B6 /* Resources */ = {
 			isa = PBXGroup;
 			children = (
 				6E6E64FD9D6B923A722BBACC /* Assets.xcassets */,
+				4B11D0F0A1C2E3F405060701 /* Fonts */,
 				E3644331467EF152DA778B33 /* Loom-iOS.entitlements */,
 				E0BFF89D5DB742C5E7385549 /* Loom-macOS.entitlements */,
 			);
@@ -274,6 +290,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				7E9AB2E5D01C7095823A247B /* Assets.xcassets in Resources */,
+				4B11D0F0A1C2E3F405060704 /* DMSerifDisplay-Regular.ttf in Resources */,
+				4B11D0F0A1C2E3F405060706 /* Figtree-Variable.ttf in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -282,6 +300,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				6495ED1FA3CC3AEE78C4B13B /* Assets.xcassets in Resources */,
+				4B11D0F0A1C2E3F405060705 /* DMSerifDisplay-Regular.ttf in Resources */,
+				4B11D0F0A1C2E3F405060707 /* Figtree-Variable.ttf in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

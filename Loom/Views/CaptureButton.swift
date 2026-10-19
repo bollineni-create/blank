@@ -77,7 +77,7 @@ struct CaptureButton: View {
 }
 
 /// The "+" itself: Loom's one primary action. Accent-tinted Liquid Glass where available,
-/// otherwise the signature gradient with its coral glow.
+/// otherwise the signature gradient with its terracotta glow.
 private struct CaptureGlyph: View {
     var body: some View {
         let plus = Image(systemName: "plus")
