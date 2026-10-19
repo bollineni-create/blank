@@ -4,6 +4,7 @@ import SwiftData
 struct SettingsView: View {
     @Environment(LLMService.self) private var llm
     @Environment(Librarian.self) private var librarian
+    @Environment(SyncMonitor.self) private var sync
     @Query private var items: [Item]
 
     var body: some View {
@@ -47,6 +48,28 @@ struct SettingsView: View {
                 LabeledContent("Organized", value: "\(items.filter { $0.aiStatus == .done }.count)")
             }
 
+            Section {
+                LabeledContent("Status") {
+                    HStack(spacing: Theme.Space.s6) {
+                        Circle().fill(syncColor).frame(width: 8, height: 8)
+                        Text(sync.headline)
+                    }
+                }
+                if let detail = sync.detail {
+                    Text(detail).font(.callout).foregroundStyle(.secondary)
+                }
+                if let date = sync.lastImport {
+                    LabeledContent("Last received", value: date.formatted(.relative(presentation: .named)))
+                }
+                if let date = sync.lastExport {
+                    LabeledContent("Last sent", value: date.formatted(.relative(presentation: .named)))
+                }
+            } header: {
+                Text("iCloud sync")
+            } footer: {
+                Text("Your Mac and iPhone share one library when both are signed in to the same Apple Account and both copies of Loom are signed with the same team and run from Xcode, so they use the same iCloud environment.")
+            }
+
             Section("Search") {
                 Text("Semantic search uses Apple's built-in on-device sentence embeddings, so it works even with no model loaded.")
                     .font(.callout).foregroundStyle(.secondary)
@@ -58,6 +81,14 @@ struct SettingsView: View {
         .tint(Theme.accent)
         .navigationTitle("Settings")
         .onAppear { llm.refreshAppleAvailability() }
+    }
+
+    private var syncColor: Color {
+        switch sync.tone {
+        case .ok: Theme.statusReady
+        case .busy: Theme.statusBusy
+        case .problem: Theme.statusUploading
+        }
     }
 
     private var appleStatus: String {
