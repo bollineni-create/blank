@@ -1,105 +1,119 @@
 import math, sys
-from PIL import Image, ImageDraw, ImageFilter
+from PIL import Image, ImageDraw, ImageFilter, ImageChops
 
 S = 4096  # supersampled canvas
 out_dir = sys.argv[1]
 
-def lerp(a, b, t): return tuple(int(a[i] + (b[i] - a[i]) * t) for i in range(3))
+PAPER = (250, 248, 245)
+CORAL, VIOLET, ORANGE = (232, 79, 97), (140, 97, 242), (250, 115, 74)
 
-def background(size):
-    top, bottom = (240, 88, 92), (122, 82, 238)  # coral -> violet
-    img = Image.new("RGB", (size, size))
-    px = img.load()
-    for y in range(size):
-        for x in range(size):
-            t = (x * 0.35 + y * 0.65) / size
-            px[x, y] = lerp(top, bottom, min(1, max(0, t)))
-    return img
+# Letter shapes are drawn on a 2048 grid: baseline and x-height.
+B, T = 1180, 870
 
-def artwork(size):
-    bg = background(256).resize((size, size), Image.BICUBIC).convert("RGBA")
-    s = size / 4096
+def arc(cx, cy, rx, ry, a0, a1, n=80):
+    return [(cx + rx * math.cos(math.radians(a0 + (a1 - a0) * i / n)), cy + ry * math.sin(math.radians(a0 + (a1 - a0) * i / n))) for i in range(n + 1)]
 
-    # Soft light in the upper left.
-    glow = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    ImageDraw.Draw(glow).ellipse([int(-600*s), int(-700*s), int(2600*s), int(2300*s)], fill=(255, 255, 255, 60))
-    bg = Image.alpha_composite(bg, glow.filter(ImageFilter.GaussianBlur(500 * s)))
+def o(cx):
+    # Enter at the top heading right, go round clockwise and come back out over the top.
+    return arc(cx, (B + T) / 2, 118, (B - T) / 2, -100, 250, 140)
 
-    # Faint loom weave behind the web.
-    weave = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    d = ImageDraw.Draw(weave)
-    for i in range(1, 12):
-        p = int(i * size / 12)
-        d.line([(p, 0), (p, size)], fill=(255, 255, 255, 22), width=int(14 * s))
-        d.line([(0, p), (size, p)], fill=(255, 255, 255, 22), width=int(14 * s))
-    bg = Image.alpha_composite(bg, weave)
+def word():
+    # Cursive "loom" as one continuous stroke.
+    p = [(150, 1200), (240, 1150), (340, 1000), (420, 800), (450, 640), (430, 545), (385, 525), (350, 560),
+         (340, 680), (345, 900), (360, 1100), (400, 1185), (470, 1190), (540, 1090), (600, 930)]
+    p += o(690)
+    p += [(770, 900), (850, 870), (900, 880)]
+    p += o(1000)
+    p += [(1080, 900), (1150, 880), (1190, 930), (1196, 1060), (1192, B - 30), (1205, B)]
+    # m: each stem dips to the baseline in a narrow V rather than reversing on the spot,
+    # so the braid turns instead of pinching into a blunt end.
+    for m0 in (1210, 1420):
+        p += arc(m0 + 105, T + 110, 105, 120, 180, 360, 50)[1:] + [(m0 + 210, B - 90), (m0 + 214, B - 10), (m0 + 230, B)]
+    p += [(1700, 1195), (1780, 1160), (1850, 1090)]
+    return p
 
-    c = (2048, 2048)
-    ring = []
-    for k in range(7):
-        a = -math.pi / 2 + k * 2 * math.pi / 7 + 0.15
-        r = 1250 + (110 if k % 2 else -60)
-        ring.append((c[0] + r * math.cos(a), c[1] + r * math.sin(a)))
-    mids = []
-    for k in range(7):
-        a = -math.pi / 2 + (k + 0.5) * 2 * math.pi / 7 + 0.15
-        r = 720
-        mids.append((c[0] + r * math.cos(a), c[1] + r * math.sin(a)))
+def ell():
+    # Just the looped "l", for the small Mac sizes where the whole word would be a squiggle.
+    return [(150, 1200), (240, 1150), (340, 1000), (420, 800), (450, 640), (430, 545), (385, 525), (350, 560),
+            (340, 680), (345, 900), (360, 1100), (400, 1185), (470, 1190), (540, 1120), (590, 1040)]
 
-    edges = []
-    for k in range(7):
-        edges += [(c, ring[k]), (ring[k], ring[(k + 1) % 7]), (mids[k], ring[k]), (mids[k], ring[(k + 1) % 7]), (mids[k], mids[(k + 1) % 7])]
+def smooth(p, it=5):
+    for _ in range(it):
+        q = [p[0]]
+        for a, b in zip(p, p[1:]):
+            q += [(0.75 * a[0] + 0.25 * b[0], 0.75 * a[1] + 0.25 * b[1]), (0.25 * a[0] + 0.75 * b[0], 0.25 * a[1] + 0.75 * b[1])]
+        q.append(p[-1]); p = q
+    return p
 
-    def sp(p): return (p[0] * s, p[1] * s)
+def resample(p, step):
+    out, carry = [p[0]], 0.0
+    for a, b in zip(p, p[1:]):
+        d = math.dist(a, b); t = step - carry
+        while t <= d:
+            out.append((a[0] + (b[0] - a[0]) * t / d, a[1] + (b[1] - a[1]) * t / d)); t += step
+        carry = d - (t - step)
+    return out
 
-    # Glow under the threads, then the threads.
-    lines = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    ld = ImageDraw.Draw(lines)
-    for a, b in edges:
-        ld.line([sp(a), sp(b)], fill=(255, 255, 255, 255), width=int(34 * s))
-    shadow = lines.filter(ImageFilter.GaussianBlur(60 * s))
-    shadow_tint = Image.new("RGBA", (size, size), (255, 255, 255, 0))
-    shadow_tint.putalpha(shadow.getchannel("A").point(lambda v: int(v * 0.5)))
-    bg = Image.alpha_composite(bg, shadow_tint)
-    faint = Image.new("RGBA", (size, size), (255, 255, 255, 0))
-    faint.putalpha(lines.getchannel("A").point(lambda v: int(v * 0.78)))
-    bg = Image.alpha_composite(bg, faint)
+def fit(p, w, h):
+    # Scale the stroke to fit a w x h box centred on the canvas; returns the path and the scale used.
+    xs, ys = [q[0] for q in p], [q[1] for q in p]
+    f = min(w / (max(xs) - min(xs)), h / (max(ys) - min(ys)))
+    cx, cy = (min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2
+    return [(1024 + (x - cx) * f, 1024 + (y - cy) * f) for x, y in p], f
 
-    # Nodes.
-    nodes = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    nd = ImageDraw.Draw(nodes)
-    def dot(p, r, fill=(255, 255, 255, 255)):
-        x, y = sp(p); r *= s
-        nd.ellipse([x - r, y - r, x + r, y + r], fill=fill)
-    for p in ring: dot(p, 150)
-    for p in mids: dot(p, 95)
-    dot(c, 400)
-    node_glow = nodes.filter(ImageFilter.GaussianBlur(90 * s))
-    ng = Image.new("RGBA", (size, size), (255, 255, 255, 0))
-    ng.putalpha(node_glow.getchannel("A").point(lambda v: int(v * 0.6)))
-    bg = Image.alpha_composite(bg, ng)
-    bg = Image.alpha_composite(bg, nodes)
+def braid(path, f, bold=1.0):
+    # Three strands plaited along the path. Each strand weaves side to side; the depth
+    # value decides which strand is on top where they cross, and a gap is cut around
+    # whichever is on top so the ones underneath read as passing beneath.
+    k = S / 2048
+    step = 2.0
+    path = resample(smooth(path), step)
+    amp, w, gap, period = 24 * f, 24 * f * bold, 7 * f, 120 * f
+    segs = []
+    for si, col in enumerate([CORAL, VIOLET, ORANGE]):
+        ph = 2 * math.pi * si / 3
+        pts = []
+        for i, (x, y) in enumerate(path):
+            a, b = path[max(0, i - 1)], path[min(len(path) - 1, i + 1)]
+            tx, ty = b[0] - a[0], b[1] - a[1]; L = math.hypot(tx, ty) or 1
+            nx, ny = -ty / L, tx / L
+            s = i * step; th = 2 * math.pi * s / period + ph
+            off = amp * math.sin(th)
+            pts.append(((x + nx * off) * k, (y + ny * off) * k, math.sin(2 * th) + 0.004 * s / f))
+        segs += [((pts[j][0], pts[j][1]), (pts[j + 1][0], pts[j + 1][1]), (pts[j][2] + pts[j + 1][2]) / 2, col) for j in range(len(pts) - 1)]
 
-    # Coloured cores: the center and a few "concepts".
-    cores = ImageDraw.Draw(bg)
-    def core(p, r, col):
-        x, y = sp(p); r *= s
-        cores.ellipse([x - r, y - r, x + r, y + r], fill=col)
-    core(c, 250, (232, 79, 97, 255))
-    core(ring[0], 78, (122, 82, 238, 255))
-    core(ring[2], 78, (247, 150, 60, 255))
-    core(ring[4], 78, (60, 160, 240, 255))
-    core(ring[6], 78, (40, 180, 125, 255))
-    return bg
+    width, cut = w * k, gap * k
+    layer = Image.new("RGBA", (S, S), (0, 0, 0, 0)); d = ImageDraw.Draw(layer)
+    seglen = sum(math.dist(s[0], s[1]) for s in segs) / len(segs)
+    reach = int((width + 2 * cut) / seglen) + 3
+    drawn = [False] * len(segs)
+    def stroke(i, wd, col):
+        p0, p1, _, _ = segs[i]
+        d.line([p0, p1], fill=col, width=int(wd))
+        d.ellipse([p1[0] - wd / 2, p1[1] - wd / 2, p1[0] + wd / 2, p1[1] + wd / 2], fill=col)
+    for i in sorted(range(len(segs)), key=lambda i: segs[i][2]):
+        stroke(i, width + 2 * cut, (0, 0, 0, 0)); drawn[i] = True
+        for j in range(max(0, i - reach), min(len(segs), i + reach + 1)):
+            if drawn[j] and segs[j][3] == segs[i][3]: stroke(j, width, segs[j][3] + (255,))
+    return layer
 
-art = artwork(S)
+def artwork(path, f, bold=1.0):
+    lay = braid(path, f, bold)
+    k = S / 2048
+    bg = Image.new("RGBA", (S, S), PAPER + (255,))
+    sh = Image.new("RGBA", (S, S), (60, 20, 90, 0))
+    sh.putalpha(ImageChops.offset(lay.getchannel("A"), 0, int(12 * k * f)).filter(ImageFilter.GaussianBlur(16 * k * f)).point(lambda v: int(v * 0.2)))
+    return Image.alpha_composite(Image.alpha_composite(bg, sh), lay)
+
+word_art = artwork(*fit(word(), 1640, 2048))
+ell_art = artwork(*fit(ell(), 2048, 1560), bold=1.8)
 
 # iOS: full-bleed square (the system rounds the corners).
-ios = art.resize((1024, 1024), Image.LANCZOS).convert("RGB")
+ios = word_art.resize((1024, 1024), Image.LANCZOS).convert("RGB")
 ios.save(f"{out_dir}/icon-ios-1024.png")
 
 # macOS: rounded square on a transparent canvas with a soft shadow, per Apple's icon grid.
-def mac_icon(px):
+def mac_icon(art, px):
     canvas = Image.new("RGBA", (S, S), (0, 0, 0, 0))
     body = int(S * 824 / 1024)
     off = (S - body) // 2
@@ -113,6 +127,7 @@ def mac_icon(px):
     canvas.paste(art_body, (off, off), mask)
     return canvas.resize((px, px), Image.LANCZOS)
 
+# The word turns into a squiggle below 128px, so the Finder/Dock sizes use the looped l.
 for px in [16, 32, 64, 128, 256, 512, 1024]:
-    mac_icon(px).save(f"{out_dir}/icon-mac-{px}.png")
+    mac_icon(word_art if px >= 128 else ell_art, px).save(f"{out_dir}/icon-mac-{px}.png")
 print("done")
