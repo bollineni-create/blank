@@ -854,7 +854,7 @@ struct KnowledgeWebView: View {
     private var emptyState: some View {
         VStack(spacing: Theme.Space.s12) {
             Image(systemName: "brain.head.profile").font(.system(size: 36, weight: .regular)).foregroundStyle(Theme.labelSecondary)
-            Text("Your mind map grows as you save things").font(.loomTitle3).serifTracking().foregroundStyle(Theme.label)
+            Text("Your mind map grows as you save things").font(.loomTitle3).headlineTracking().foregroundStyle(Theme.label)
             Text("Add notes, links, photos, videos or files with +, or drop them here. The on-device AI finds the concepts and connects everything.")
                 .multilineTextAlignment(.center).foregroundStyle(Theme.labelSecondary).frame(maxWidth: 400)
         }

@@ -23,7 +23,7 @@ struct ItemDetailView: View {
             Section {
                 TextField("Title", text: $item.title, axis: .vertical)
                     .font(.loomTitle)
-                    .serifTracking()
+                    .headlineTracking()
                     .foregroundStyle(Theme.label)
                     .onSubmit { librarian.itemEdited(item) }
                 if let url = item.url {

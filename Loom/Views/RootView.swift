@@ -20,7 +20,8 @@ struct RootView: View {
     @State private var search = ""
     @State private var question = ""
     @State private var pendingQuestion: String?
-    @State private var showingSettings = false
+    /// Scene storage, so Settings stays open when changing the look rebuilds this view.
+    @SceneStorage("showingSettings") private var showingSettings = false
     @State private var showingOnboarding = false
     @State private var isDropTargeted = false
     @FocusState private var searchFocused: Bool

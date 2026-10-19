@@ -5,11 +5,22 @@ struct SettingsView: View {
     @Environment(LLMService.self) private var llm
     @Environment(Librarian.self) private var librarian
     @Query private var items: [Item]
+    @AppStorage(DesignLanguage.storageKey) private var language = DesignLanguage.defaultValue
 
     var body: some View {
         @Bindable var bindableLibrarian = librarian
         @Bindable var bindableLLM = llm
         Form {
+            Section {
+                Picker("Look", selection: $language) {
+                    ForEach(DesignLanguage.allCases) { Text($0.name).tag($0) }
+                }
+            } header: {
+                Text("Appearance")
+            } footer: {
+                Text("Observatory is a night sky with brass accents, made for dark mode. Riso is a two-ink zine in blue and pink.")
+            }
+
             Section {
                 Toggle("Use Apple Intelligence when available", isOn: $bindableLLM.preferAppleIntelligence)
                     .disabled(llm.appleAvailability == .unsupportedOS || llm.appleAvailability == .deviceNotEligible)
@@ -155,7 +166,7 @@ struct OnboardingView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     Image(systemName: "brain.head.profile").font(.system(size: 48)).foregroundStyle(Theme.labelSecondary)
-                    Text("Your private second brain").font(.loomDisplay).serifTracking().foregroundStyle(Theme.label)
+                    Text("Your private second brain").font(.loomDisplay).headlineTracking().foregroundStyle(Theme.label)
                     feature("tray.and.arrow.down", "Save anything", "Notes, links, photos, screenshots, PDFs and files in one place.")
                     feature("sparkles", "Organized for you", "An AI model running on this device titles, summarizes and tags everything.")
                     feature("magnifyingglass", "Search by meaning", "Find things by what they're about, not just the exact words.")
@@ -164,7 +175,7 @@ struct OnboardingView: View {
                     if llm.appleAvailability != .unsupportedOS && llm.appleAvailability != .available {
                         AIAvailabilityNotice(showsAction: false)
                     }
-                    Text("Pick a model to download").font(.loomTitle3).serifTracking().foregroundStyle(Theme.label)
+                    Text("Pick a model to download").font(.loomTitle3).headlineTracking().foregroundStyle(Theme.label)
                         .padding(.top, Theme.Space.s16)
                     Text("\(LocalModel.recommended.name) (≈ \(String(format: "%.1f", LocalModel.recommended.sizeGB)) GB) is a good fit for this device. Use Wi-Fi. You can switch any time in Settings.")
                         .foregroundStyle(Theme.labelSecondary)

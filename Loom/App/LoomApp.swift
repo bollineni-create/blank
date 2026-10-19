@@ -61,6 +61,7 @@ struct LoomApp: App {
     @State private var librarian: Librarian
     @State private var router: LoomRouter
     @Environment(\.scenePhase) private var scenePhase
+    @AppStorage(DesignLanguage.storageKey) private var language = DesignLanguage.defaultValue
     let container: ModelContainer
 
     init() {
@@ -75,6 +76,7 @@ struct LoomApp: App {
     var body: some Scene {
         WindowGroup {
             RootView()
+                .designLanguage(language)
                 .environment(llm)
                 .environment(librarian)
                 .environment(router)
@@ -102,12 +104,20 @@ struct LoomApp: App {
         #if os(macOS)
         Settings {
             SettingsView()
+                .designLanguage(language)
                 .environment(llm)
                 .environment(librarian)
                 .modelContainer(container)
                 .frame(width: 560, height: 620)
         }
         #endif
+    }
+}
+
+extension View {
+    /// Rebuilds the view tree when the look changes, since `Theme` reads it directly.
+    func designLanguage(_ language: DesignLanguage) -> some View {
+        fontDesign(language.bodyDesign).id(language)
     }
 }
 

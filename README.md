@@ -11,6 +11,7 @@ A personal take on [Fabric](https://apps.apple.com/us/app/fabric-your-second-bra
 | **Semantic search** | Search matches meaning as well as keywords. It uses Apple's built-in sentence embeddings, so it works offline even with no LLM loaded. |
 | **Ask your library** | Chat with your stuff. Answers are grounded in your saved items and cite them as `[1]`, `[2]`, and each source is a tappable link. Chats are saved. |
 | **Spaces and tags** | Folders ("Spaces"), auto tags, favorites, and filters by type. |
+| **Looks** | Three design languages in Settings → Appearance: **Observatory** (a night sky with brass accents, made for dark mode, and the default), **Riso** (a two-ink zine in blue and pink) and **Loom Classic**. |
 | **Model manager** | Download, switch and delete models (GGUF from Hugging Face): Qwen3 (0.6B–8B), Gemma 3 1B, Llama 3.2 (1B / 3B). |
 
 Recommended models: **Qwen3 1.7B** on iPhone (about 1.1 GB) and **Qwen3 4B** on Mac (about 2.5 GB). Use **Qwen3 8B** on a Mac with 16 GB of RAM or more.

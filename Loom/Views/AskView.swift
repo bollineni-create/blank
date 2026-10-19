@@ -101,7 +101,7 @@ struct AskView: View {
     private var intro: some View {
         VStack(alignment: .leading, spacing: Theme.Space.s16) {
             Image(systemName: "sparkles").font(.title2).foregroundStyle(Theme.accentInk)
-            Text("Ask your library").font(.loomTitle).serifTracking().foregroundStyle(Theme.label)
+            Text("Ask your library").font(.loomTitle).headlineTracking().foregroundStyle(Theme.label)
             Text("Answers come from the model on this device, using your saved notes, links and files. Nothing leaves your \(deviceName).")
                 .foregroundStyle(Theme.labelSecondary)
             VStack(alignment: .leading, spacing: Theme.Space.s8) {
