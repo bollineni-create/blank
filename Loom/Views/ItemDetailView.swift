@@ -77,7 +77,7 @@ struct ItemDetailView: View {
                 Button { librarian.reorganize(item) } label: {
                     Label(item.summary.isEmpty ? "Summarize with AI" : "Regenerate", systemImage: "sparkles")
                 }
-                .disabled(item.aiStatus == .processing)
+                .disabled(item.aiStatus == .processing || item.aiStatus == .importing)
             } header: {
                 Label {
                     Text("What to take away")
@@ -166,6 +166,7 @@ struct ItemDetailView: View {
 
     private var statusText: String {
         switch item.aiStatus {
+        case .importing: "Still being added…"
         case .pending: "Waiting for the on-device model…"
         case .processing: "Reading and organizing…"
         case .failed: "The model couldn't organize this item. Try again."

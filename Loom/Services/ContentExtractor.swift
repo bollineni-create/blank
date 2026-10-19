@@ -135,8 +135,24 @@ enum ContentExtractor {
         #endif
     }
 
-    /// Reads text from a file on disk based on its type.
+    /// A card thumbnail for a stored file, made off the main thread: rendering a PDF page or decoding a
+    /// large photo on the main thread stalled the app when many files came in at once.
+    static func fileThumbnail(_ url: URL, kind: ItemKind) async -> Data? {
+        await Task.detached(priority: .userInitiated) { () -> Data? in
+            switch kind {
+            case .pdf: return pdfThumbnail(url)
+            case .image: return (try? Data(contentsOf: url)).flatMap { thumbnail(from: $0) }
+            default: return nil
+            }
+        }.value
+    }
+
+    /// Reads text from a file on disk based on its type. Always runs off the main thread.
     static func text(fromFile url: URL) async -> String {
+        await Task.detached(priority: .userInitiated) { await readText(fromFile: url) }.value
+    }
+
+    private static func readText(fromFile url: URL) async -> String {
         let type = UTType(filenameExtension: url.pathExtension) ?? .data
         if type.conforms(to: .pdf) {
             let text = pdfText(PDFDocument(url: url))
