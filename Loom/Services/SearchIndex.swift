@@ -5,6 +5,14 @@ import NaturalLanguage
 /// mixed with plain keyword matching so exact words still win.
 enum SearchIndex {
     private static let embedder = NLEmbedding.sentenceEmbedding(for: .english)
+    /// One vector lookup at a time: search runs on the main thread while new items embed in the background.
+    private static let embedderLock = NSLock()
+
+    /// Embeds off the main thread and packs the result for storing. Embedding each new item on the main
+    /// thread while a batch of files came in was part of what froze the app.
+    static func embedInBackground(_ text: String) async -> Data? {
+        await Task.detached(priority: .utility) { pack(embed(text)) }.value
+    }
 
     /// Embeds the first part of a text. Returns nil if embeddings aren't available on this device.
     static func embed(_ text: String) -> [Float]? {
@@ -15,7 +23,10 @@ enum SearchIndex {
         var sum: [Double] = []
         var count = 0.0
         for c in chunks {
-            guard let v = embedder.vector(for: c) else { continue }
+            embedderLock.lock()
+            let vector = embedder.vector(for: c)
+            embedderLock.unlock()
+            guard let v = vector else { continue }
             if sum.isEmpty { sum = v } else { for i in sum.indices { sum[i] += v[i] } }
             count += 1
         }

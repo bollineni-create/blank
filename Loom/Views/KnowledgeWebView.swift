@@ -367,6 +367,9 @@ struct KnowledgeWebView: View {
     @State private var viewSize: CGSize = .zero
     @State private var newNoteTags: [String]?
     @State private var showingNewNote = false
+    /// The rebuild waiting for a burst of changes to end, and the item to fly to once it's on the map.
+    @State private var rebuildTask: Task<Void, Never>?
+    @State private var pendingFocus: String?
 
     private enum DragMode {
         case node(Int)
@@ -421,7 +424,7 @@ struct KnowledgeWebView: View {
         }
         .background(background)
         .clipped()
-        .onChange(of: signature) { _, _ in sim.rebuild(items: items, spaces: spaces, linkSimilar: linkSimilar) }
+        .onChange(of: signature) { _, _ in scheduleRebuild() }
         .onChange(of: focusRequest) { _, id in
             guard let id else { return }
             focus(on: "item:\(id)")
@@ -1092,9 +1095,29 @@ struct KnowledgeWebView: View {
         pan = CGSize(width: -b.midX * s, height: -b.midY * s + 20)
     }
 
+    /// Rebuilds the web once a burst of changes has ended. Adding a batch of files changes the library many
+    /// times a second (each item, its thumbnail, its embedding, its tags), and each rebuild compares every item
+    /// with every other; doing that for every change is what froze the app.
+    private func scheduleRebuild() {
+        rebuildTask?.cancel()
+        rebuildTask = Task {
+            try? await Task.sleep(for: .milliseconds(350))
+            guard !Task.isCancelled else { return }
+            sim.rebuild(items: items, spaces: spaces, linkSimilar: linkSimilar)
+            if let id = pendingFocus {
+                pendingFocus = nil
+                focus(on: id)
+            }
+        }
+    }
+
     private func focus(on id: String) {
-        if sim.position(of: id) == nil { sim.rebuild(items: items, spaces: spaces, linkSimilar: linkSimilar) }
-        guard let p = sim.position(of: id) else { return }
+        guard let p = sim.position(of: id) else {
+            // Not on the map yet: fly there once the next rebuild has placed it.
+            pendingFocus = id
+            scheduleRebuild()
+            return
+        }
         let s = max(scale, 1.2)
         withAnimation(.spring(duration: 0.5)) {
             scale = s

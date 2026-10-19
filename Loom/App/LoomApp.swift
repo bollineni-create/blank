@@ -35,14 +35,10 @@ final class LoomServices {
     /// Connects the librarian to the database and checks the model. Safe to call more than once.
     func start() {
         guard librarian.context == nil else { return }
-        let context = container.mainContext
-        librarian.context = context
-        // Anything interrupted mid-processing last time goes back in the queue.
-        let processing = AIStatus.processing.rawValue
-        if let stuck = try? context.fetch(FetchDescriptor<Item>(predicate: #Predicate { $0.aiStatusRaw == processing })) {
-            for item in stuck { item.aiStatus = .pending }
-            try? context.save()
-        }
+        librarian.context = container.mainContext
+        // Copies the last run never finished are dropped; adds it never finished are picked up where they stopped.
+        AttachmentStore.clearStaging()
+        librarian.resumeInterruptedAdds()
         librarian.upgradeOldSummaries()
         librarian.backfillAttachmentsForSync()
         llm.refreshAppleAvailability()

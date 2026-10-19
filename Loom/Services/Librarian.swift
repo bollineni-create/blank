@@ -2,6 +2,44 @@ import Foundation
 import SwiftData
 import UniformTypeIdentifiers
 
+/// Lets only a few pieces of work run at once. Reading twenty files together (OCR, PDF text, transcription)
+/// filled memory and starved the main thread, which is what froze the app when a big batch was dropped in.
+final class WorkLimiter: @unchecked Sendable {
+    private let lock = NSLock()
+    private let limit: Int
+    private var running = 0
+    private var waiting: [CheckedContinuation<Void, Never>] = []
+
+    init(limit: Int) { self.limit = max(1, limit) }
+
+    /// Waits for a free slot. Pair every call with `release()`.
+    func acquire() async {
+        lock.lock()
+        if running < limit {
+            running += 1
+            lock.unlock()
+            return
+        }
+        await withCheckedContinuation { continuation in
+            waiting.append(continuation)
+            lock.unlock()
+        }
+    }
+
+    /// Hands the slot to the next in line, or frees it.
+    func release() {
+        lock.lock()
+        guard !waiting.isEmpty else {
+            running -= 1
+            lock.unlock()
+            return
+        }
+        let next = waiting.removeFirst()
+        lock.unlock()
+        next.resume()
+    }
+}
+
 /// Saves things into the library and lets the on-device AI organize them:
 /// extracts text, builds the search embedding, and writes a title, summary and tags.
 @MainActor
@@ -9,6 +47,12 @@ import UniformTypeIdentifiers
 final class Librarian {
     let llm: LLMService
     var context: ModelContext?
+
+    /// Files copy in one at a time (the disk is quickest that way, and each shows up as soon as its copy is
+    /// whole), a couple are read at once, and a few web pages fetch at once.
+    private static let copies = WorkLimiter(limit: 1)
+    private static let readers = WorkLimiter(limit: 2)
+    private static let fetches = WorkLimiter(limit: 4)
 
     /// Turn off to keep items exactly as saved (no AI titles, summaries or tags).
     var autoOrganize: Bool = UserDefaults.standard.object(forKey: "autoOrganize") as? Bool ?? true {
@@ -159,7 +203,12 @@ final class Librarian {
     @discardableResult
     func addNote(_ text: String, title: String = "", space: Space? = nil) -> Item {
         let item = Item(kind: .note, title: title, body: text, space: space)
+        item.aiStatus = .importing
         insert(item)
+        addTasks[item.id] = Task {
+            if discardIfCancelled(item) { return }
+            await finishAdding(item)
+        }
         return item
     }
 
@@ -176,41 +225,40 @@ final class Librarian {
     @discardableResult
     func addLink(_ url: URL, comment: String = "", space: Space? = nil) -> Item {
         let item = Item(kind: .link, title: url.host() ?? url.absoluteString, body: comment, urlString: url.absoluteString, space: space)
-        item.aiStatus = .processing
-        insert(item, organize: false)
-        setStage(item, .reading("Fetching the page…"))
+        item.aiStatus = .importing
+        insert(item)
         addTasks[item.id] = Task {
-            do {
-                let content = try await ContentExtractor.fetchLink(url)
-                if !content.title.isEmpty { item.title = content.title }
-                item.extractedText = [content.description, content.text].filter { !$0.isEmpty }.joined(separator: "\n\n")
-                if let imageURL = content.imageURL { item.thumbnail = await ContentExtractor.fetchImageData(imageURL) }
-            } catch {
-                // Offline or blocked: keep the link; it can be re-fetched later.
-            }
+            await fetchPage(for: item)
             if discardIfCancelled(item) { return }
-            item.aiStatus = .pending
-            finishAdding(item)
+            await finishAdding(item)
         }
         return item
     }
 
-    func addImage(_ data: Data, fileExtension: String = "jpg", space: Space? = nil) {
-        guard let name = try? AttachmentStore.save(data, fileExtension: fileExtension) else { return }
-        let item = Item(kind: .image, attachmentName: name, thumbnail: ContentExtractor.thumbnail(from: data), space: space)
-        item.attachmentData = data
-        item.aiStatus = .processing
-        insert(item, organize: false)
-        setStage(item, .reading("Reading text in the image…"))
-        addTasks[item.id] = Task {
-            item.extractedText = await ContentExtractor.recognizeText(in: data)
-            if discardIfCancelled(item) { return }
-            item.aiStatus = .pending
-            finishAdding(item)
+    /// Fetches a link's page text and preview image. Offline or blocked, the link is kept as it is.
+    private func fetchPage(for item: Item) async {
+        guard let url = item.url else { return }
+        setStage(item, .reading("Fetching the page…"))
+        await Self.fetches.acquire()
+        defer { Self.fetches.release() }
+        guard !Task.isCancelled else { return }
+        do {
+            let content = try await ContentExtractor.fetchLink(url)
+            if !content.title.isEmpty { item.title = content.title }
+            item.extractedText = [content.description, content.text].filter { !$0.isEmpty }.joined(separator: "\n\n")
+            if let imageURL = content.imageURL { item.thumbnail = await ContentExtractor.fetchImageData(imageURL) }
+        } catch {
+            // Offline or blocked: keep the link; it can be re-fetched later.
         }
     }
 
-    /// Adds any file. It appears right away; copying and reading happen in the background.
+    func addImage(_ data: Data, fileExtension: String = "jpg", space: Space? = nil) {
+        let item = Item(kind: .image, space: space)
+        importAttachment(into: item, named: "Image") { try AttachmentStore.save(data, fileExtension: fileExtension) }
+    }
+
+    /// Adds any file. The tray shows it right away; it joins the library as soon as its copy is whole, and
+    /// reading it (text, OCR, transcription) happens a few files at a time in the background.
     /// Pass `removeSourceWhenDone` for temporary copies (drops, Photos) so they're cleaned up after.
     func addFile(_ url: URL, space: Space? = nil, removeSourceWhenDone: Bool = false) {
         let type = UTType(filenameExtension: url.pathExtension) ?? .data
@@ -220,44 +268,112 @@ final class Librarian {
             : .file
         let title = url.deletingPathExtension().lastPathComponent
         let item = Item(kind: kind, title: kind == .image ? "" : title, space: space)
-        item.aiStatus = .processing
-        insert(item, organize: false)
-        setStage(id: item.id, title: url.lastPathComponent, symbol: kind.symbol, .copying)
+        importAttachment(into: item, named: url.lastPathComponent, removeSource: removeSourceWhenDone ? url : nil) {
+            try AttachmentStore.importFile(at: url)
+        }
+    }
 
+    /// Copies a file into the library, then adds the item and reads it. The item is only saved once its file
+    /// is whole, so quitting mid-copy leaves nothing behind; quitting mid-read is picked up at the next launch.
+    private func importAttachment(into item: Item, named displayName: String, removeSource: URL? = nil,
+                                  copy: @escaping @Sendable () throws -> String) {
+        item.aiStatus = .importing
+        let symbol = item.kind.symbol
+        setStage(id: item.id, title: displayName, symbol: symbol, .copying)
         addTasks[item.id] = Task {
-            let name = await Task.detached(priority: .userInitiated) { try? AttachmentStore.importFile(at: url) }.value
-            if removeSourceWhenDone { try? FileManager.default.removeItem(at: url) }
-            if let name, Task.isCancelled { item.attachmentName = name }
-            if discardIfCancelled(item) { return }
+            await Self.copies.acquire()
+            let name = await Task.detached(priority: .userInitiated) { try? copy() }.value
+            Self.copies.release()
+            if let removeSource { AttachmentStore.removeTemporary(removeSource) }
+            if cancelledIDs.contains(item.id) {
+                // Cancelled before it joined the library: nothing to keep.
+                AttachmentStore.delete(name)
+                cancelledIDs.remove(item.id)
+                addTasks[item.id] = nil
+                return
+            }
             guard let name else {
                 addTasks[item.id] = nil
-                item.aiStatus = .failed
-                setStage(item, .failed("Couldn't copy \(url.lastPathComponent)"))
-                try? context?.save()
+                setStage(id: item.id, title: displayName, symbol: symbol, .failed("Couldn't copy \(displayName)"))
                 return
             }
             item.attachmentName = name
-            let stored = AttachmentStore.url(for: name)
-            // The copy for iCloud is made off the main thread once the AI is done (see backfillAttachmentsForSync).
-            switch kind {
-            case .pdf:
-                item.thumbnail = ContentExtractor.pdfThumbnail(stored)
-                setStage(item, .reading("Reading the PDF…"))
-                item.extractedText = await ContentExtractor.text(fromFile: stored)
-            case .image:
-                item.thumbnail = (try? Data(contentsOf: stored)).flatMap { ContentExtractor.thumbnail(from: $0) }
-                setStage(item, .reading("Reading text in the image…"))
-                item.extractedText = await ContentExtractor.text(fromFile: stored)
-            case .video:
-                setStage(item, .reading("Transcribing the video…"))
-                await readVideo(item, from: stored)
-            default:
-                setStage(item, .reading("Reading the file…"))
-                item.extractedText = await ContentExtractor.text(fromFile: stored)
-            }
+            insert(item)
+            await readAttachment(item)
             if discardIfCancelled(item) { return }
-            item.aiStatus = .pending
-            finishAdding(item)
+            await finishAdding(item)
+        }
+    }
+
+    /// Reads an item's file: a thumbnail and its text, OCR or transcript. A couple run at once.
+    private func readAttachment(_ item: Item) async {
+        guard let name = item.attachmentName else { return }
+        let stored = AttachmentStore.url(for: name)
+        await Self.readers.acquire()
+        defer { Self.readers.release() }
+        guard !Task.isCancelled else { return }
+        // The copy for iCloud is made off the main thread once the AI is done (see backfillAttachmentsForSync).
+        switch item.kind {
+        case .pdf:
+            setStage(item, .reading("Reading the PDF…"))
+            if item.thumbnail == nil { item.thumbnail = await ContentExtractor.fileThumbnail(stored, kind: .pdf) }
+            item.extractedText = await ContentExtractor.text(fromFile: stored)
+        case .image:
+            setStage(item, .reading("Reading text in the image…"))
+            if item.thumbnail == nil { item.thumbnail = await ContentExtractor.fileThumbnail(stored, kind: .image) }
+            item.extractedText = await ContentExtractor.text(fromFile: stored)
+        case .video:
+            setStage(item, .reading("Transcribing the video…"))
+            await readVideo(item, from: stored)
+        default:
+            setStage(item, .reading("Reading the file…"))
+            item.extractedText = await ContentExtractor.text(fromFile: stored)
+        }
+    }
+
+    /// Finishes adds the last run left behind. An item is `importing` from the moment it's saved until it has
+    /// been read, so anything still in that state (or stuck in `processing` from an older build) was cut off
+    /// by quitting: it's read again and queued. A file whose copy never finished has nothing in it to keep.
+    func resumeInterruptedAdds() {
+        guard let context else { return }
+        let importing = AIStatus.importing.rawValue
+        let processing = AIStatus.processing.rawValue
+        let stuck = (try? context.fetch(FetchDescriptor<Item>(
+            predicate: #Predicate { $0.aiStatusRaw == importing || $0.aiStatusRaw == processing }))) ?? []
+        for item in stuck {
+            let wasImporting = item.aiStatus == .importing
+            switch item.kind {
+            case .note:
+                if wasImporting { resume(item) { } } else { item.aiStatus = .pending }
+            case .link:
+                if wasImporting || item.extractedText.isEmpty {
+                    resume(item) { await self.fetchPage(for: item) }
+                } else {
+                    item.aiStatus = .pending
+                }
+            case .image, .video, .pdf, .file:
+                if item.attachmentName == nil, item.attachmentData == nil {
+                    // Never finished copying in, before copies were staged: an empty shell with no file.
+                    context.delete(item)
+                } else if item.attachmentURL.map({ FileManager.default.fileExists(atPath: $0.path) }) != true {
+                    // Another device is still adding it; its result arrives through iCloud.
+                    continue
+                } else if wasImporting || item.extractedText.isEmpty {
+                    resume(item) { await self.readAttachment(item) }
+                } else {
+                    item.aiStatus = .pending
+                }
+            }
+        }
+        try? context.save()
+    }
+
+    private func resume(_ item: Item, _ read: @escaping () async -> Void) {
+        item.aiStatus = .importing
+        addTasks[item.id] = Task {
+            await read()
+            if discardIfCancelled(item) { return }
+            await finishAdding(item)
         }
     }
 
@@ -310,8 +426,8 @@ final class Librarian {
 
     /// Ends an add that was cancelled: the half-added item and its file are removed.
     private func discardIfCancelled(_ item: Item) -> Bool {
-        addTasks[item.id] = nil
         guard cancelledIDs.contains(item.id) else { return false }
+        addTasks[item.id] = nil
         cancelledIDs.remove(item.id)
         delete(item)
         return true
@@ -348,7 +464,7 @@ final class Librarian {
     /// Redoes the summary and takeaways for every item.
     func reorganizeAll() {
         guard let items = try? context?.fetch(FetchDescriptor<Item>()) else { return }
-        for item in items where item.aiStatus != .processing { item.aiStatus = .pending }
+        for item in items where item.aiStatus != .processing && item.aiStatus != .importing { item.aiStatus = .pending }
         try? context?.save()
         runQueue()
     }
@@ -385,8 +501,10 @@ final class Librarian {
     nonisolated private static func copyAttachmentsIntoLibrary(_ container: ModelContainer) {
         let processing = AIStatus.processing.rawValue
         let pending = AIStatus.pending.rawValue
+        let importing = AIStatus.importing.rawValue
         let ids = ((try? ModelContext(container).fetch(FetchDescriptor<Item>(predicate: #Predicate {
-            $0.attachmentName != nil && $0.attachmentData == nil && $0.aiStatusRaw != processing && $0.aiStatusRaw != pending
+            $0.attachmentName != nil && $0.attachmentData == nil
+                && $0.aiStatusRaw != processing && $0.aiStatusRaw != pending && $0.aiStatusRaw != importing
         }))) ?? []).map(\.id)
         for id in ids {
             autoreleasepool {
@@ -420,21 +538,24 @@ final class Librarian {
 
     // MARK: AI queue
 
-    private func insert(_ item: Item, organize: Bool = true) {
+    private func insert(_ item: Item) {
         context?.insert(item)
         try? context?.save()
         lastAddedID = item.id
-        if organize { finishAdding(item) }
     }
 
-    private func finishAdding(_ item: Item) {
-        item.embedding = SearchIndex.pack(SearchIndex.embed(item.fullText))
+    /// The last step of adding: the search embedding, then the AI queue (or done, with auto-organize off).
+    private func finishAdding(_ item: Item) async {
+        item.embedding = await SearchIndex.embedInBackground(item.fullText)
+        if discardIfCancelled(item) { return }
         if !autoOrganize {
             item.aiStatus = .skipped
             setStage(item, .done)
         } else {
+            item.aiStatus = .pending
             setStage(item, llm.isReady ? .queued : .waitingForModel)
         }
+        addTasks[item.id] = nil
         try? context?.save()
         runQueue()
         // With the AI off, nothing else will make the copy for iCloud.
@@ -526,8 +647,8 @@ final class Librarian {
                     .filter { !$0.isEmpty && $0.count < 30 }
                 item.tags = Array(NSOrderedSet(array: item.tags + cleaned)).compactMap { $0 as? String }.prefix(8).map { $0 }
             }
-            item.embedding = SearchIndex.pack(SearchIndex.embed(
-                item.fullText + "\n" + item.summary + "\n" + item.takeaways.joined(separator: "\n") + "\n" + item.tags.joined(separator: " ")))
+            item.embedding = await SearchIndex.embedInBackground(
+                item.fullText + "\n" + item.summary + "\n" + item.takeaways.joined(separator: "\n") + "\n" + item.tags.joined(separator: " "))
             item.aiVersion = Self.aiVersion
             item.aiStatus = .done
             setStage(item, .done, create: false)

@@ -11,7 +11,7 @@ Loom is a personal take on [Fabric](https://apps.apple.com/us/app/fabric-your-se
 
 ## What it does
 
-- **Save anything.** Notes, links (Loom fetches the page text), photos and screenshots (read with on-device OCR), videos (speech transcribed on the device, plus any text shown on screen), PDFs (text, and OCR for scans) and any other file. Add things from the + menu, by pasting (⌘V on Mac), or by drag and drop.
+- **Save anything.** Notes, links (Loom fetches the page text), photos and screenshots (read with on-device OCR), videos (speech transcribed on the device, plus any text shown on screen), PDFs (text, and OCR for scans) and any other file. Add things from the + menu, by pasting (⌘V on Mac), or by drag and drop. Drop in as many as you like: they're copied in one at a time and read a couple at a time, so the app stays responsive, and anything still being added when you quit is finished on the next launch.
 - **Auto-organize.** Apple Intelligence writes a title, a summary of one to three sentences and topic tags for each item. It reuses the tags you already have, so they stay consistent.
 - **Semantic search.** Search matches meaning as well as keywords. It uses Apple's built-in sentence embeddings, so it works offline even without Apple Intelligence.
 - **Ask your library.** Chat with what you've saved. Answers come from your items and cite them as `[1]`, `[2]`, and each source is a link you can tap. Chats are kept.

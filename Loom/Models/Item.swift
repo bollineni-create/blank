@@ -33,6 +33,9 @@ enum ItemKind: String, Codable, CaseIterable, Identifiable {
 /// Where the on-device AI is with an item.
 enum AIStatus: String, Codable {
     case pending, processing, done, failed, skipped
+    /// Still being added: its file is copying in or being read. Saved to disk, so an add cut short by
+    /// quitting the app is finished on the next launch instead of being left half-done.
+    case importing
 }
 
 /// One thing in your second brain: a note, a link, an image, a PDF or any file.
