@@ -138,10 +138,11 @@ extension View {
 
     /// Floating chrome: Liquid Glass on iOS 26 / macOS 26 and later, regular material plus hairline before that.
     /// Pass `tint` only for the one primary action (the capture button).
+    /// Pass `interactive: false` for a bar that holds its own buttons: interactive glass takes the touch on iPhone.
     @ViewBuilder
-    func floatingChrome<S: InsettableShape>(_ shape: S, tint: Color? = nil) -> some View {
+    func floatingChrome<S: InsettableShape>(_ shape: S, tint: Color? = nil, interactive: Bool = true) -> some View {
         if #available(iOS 26.0, macOS 26.0, *) {
-            glassEffect(Glass.regular.tint(tint).interactive(), in: shape)
+            glassEffect(Glass.regular.tint(tint).interactive(interactive), in: shape)
         } else {
             self
                 .background(.regularMaterial, in: shape)
