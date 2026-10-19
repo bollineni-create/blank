@@ -27,7 +27,7 @@ open Loom.xcodeproj
 
 If you change `project.yml`, regenerate the project with `brew install xcodegen` (one-time) and `xcodegen generate`.
 
-1. In Xcode, select the **Loom-iOS** or **Loom-macOS** target, go to **Signing & Capabilities**, and choose your Team. A free Apple ID works. iCloud sync is off by default because it needs a paid Apple Developer Program team (see below).
+1. In Xcode, select the **Loom-iOS** or **Loom-macOS** target, go to **Signing & Capabilities**, and check the Team. The project is set to the paid team `66BLLM3ERE` with iCloud sync on. To build with a free Apple ID instead, pick your own team and point `CODE_SIGN_ENTITLEMENTS` back at the plain `Loom-iOS.entitlements` / `Loom-macOS.entitlements` (a free team can't sign iCloud).
 2. Press ⌘R.
 
 Note for iPhone: with a free Apple ID, apps you sideload expire after 7 days. Re-run from Xcode to refresh. A paid developer account lasts a year.
@@ -41,15 +41,7 @@ To get Loom into your Applications folder, run one command. After that you can o
 ./scripts/install-mac.sh --no-install  # builds only, into build/
 ```
 
-It needs Xcode but no Apple ID, because the build is ad-hoc signed. Run it again after you pull changes to update the installed app. On another Mac, right-click the app and choose **Open** the first time.
-
-An ad-hoc signed app can't use iCloud, so it keeps its own library. To sync with your iPhone, pass your paid Apple Developer Program team ID (Xcode → Settings → Accounts, or developer.apple.com → Membership). The script then signs with that team and the iCloud entitlements:
-
-```bash
-LOOM_TEAM=ABCDE12345 ./scripts/install-mac.sh
-```
-
-The iPhone app must use the same team and the iOS iCloud entitlements (see below). Both builds use iCloud's development environment, so they see the same data.
+It needs Xcode. It signs with the project's team (`66BLLM3ERE`) and turns on iCloud, so the installed app shares one library with the iPhone. Run it again after you pull changes to update the installed app. To build for a different team, use `LOOM_TEAM=<team id> ./scripts/install-mac.sh`. To build without any team (ad-hoc signed, no iCloud, its own library), use `LOOM_TEAM= ./scripts/install-mac.sh`.
 
 ## Sharing one library between Mac and iPhone (iCloud)
 
@@ -57,7 +49,7 @@ The library syncs through your private iCloud database (container `iCloud.com.pe
 
 For sync to work:
 
-1. **A paid Apple Developer Program team.** A free Apple ID can't sign apps with iCloud, so by default both targets are signed without it and each device keeps its own library. To turn sync on, change `CODE_SIGN_ENTITLEMENTS` in `project.yml` to `Loom/Resources/Loom-iOS-iCloud.entitlements` and `Loom/Resources/Loom-macOS-iCloud.entitlements`, then run `xcodegen generate` again.
+1. **A paid Apple Developer Program team.** A free Apple ID can't sign apps with iCloud. The project is set up for team `66BLLM3ERE` with the `-iCloud` entitlements on both targets; with a free team, switch `CODE_SIGN_ENTITLEMENTS` in `project.yml` back to the plain files and run `xcodegen generate`, and each device keeps its own library.
 2. **The same team on both targets.** In Xcode, open **Signing & Capabilities** for **Loom-iOS** and **Loom-macOS**, choose the same team, and check that the **iCloud** capability lists the `iCloud.com.personal.loom` container on both. Container names are unique across all developers. If Xcode says the name is taken, pick another one (for example `iCloud.com.yourname.loom`), and change it in both `-iCloud` entitlements files and in `SyncMonitor.containerID`.
 3. **The same Apple Account** signed in to iCloud on the Mac and the iPhone.
 4. **The same iCloud environment.** Builds you run from Xcode use the *development* environment. TestFlight and App Store builds use *production*. The two never see each other's data, so run both from Xcode (or ship both through TestFlight after deploying the schema in the CloudKit Console).

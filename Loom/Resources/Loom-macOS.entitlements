@@ -2,7 +2,7 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- Signs with a free Apple ID. For iCloud sync (paid team), point CODE_SIGN_ENTITLEMENTS at the -iCloud copy; see README. -->
+	<!-- For a free Apple ID (no iCloud). The project uses the -iCloud copy with the paid team; see README. -->
 	<key>com.apple.security.app-sandbox</key>
 	<true/>
 	<!-- Needed to fetch saved links. -->
