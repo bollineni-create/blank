@@ -41,7 +41,7 @@ targets:
         CODE_SIGN_ENTITLEMENTS: Loom/Resources/Loom-iOS.entitlements
         INFOPLIST_FILE: Config/Loom-iOS-Info.plist
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
-        INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight
 
   Loom-macOS:
     templates: [LoomApp]
