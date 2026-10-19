@@ -69,3 +69,10 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             | tee build.log | grep -E "error:|warning: .*Loom/|BUILD (SUCCEEDED|FAILED)" || true
           grep -q "BUILD SUCCEEDED" build.log
+
+      - name: Check the Share extension is embedded
+        run: |
+          APPEX=$(find ~/Library/Developer/Xcode/DerivedData -path "*Loom.app*/PlugIns/LoomShare.appex" -maxdepth 8 -type d | head -1)
+          if [ -z "$APPEX" ]; then echo "LoomShare.appex is not embedded in Loom.app"; exit 1; fi
+          echo "Embedded: $APPEX"
+          plutil -p "$APPEX/Info.plist" 2>/dev/null || plutil -p "$APPEX/Contents/Info.plist"
