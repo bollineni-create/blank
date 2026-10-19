@@ -362,6 +362,8 @@ struct KnowledgeWebView: View {
     @State private var hovered: Int?
     @State private var hoverLocation: CGPoint = .zero
     @State private var selectedConcept: String?
+    /// Kinds picked in the legend; empty shows everything.
+    @State private var kindFilter: Set<ItemKind> = []
     @State private var viewSize: CGSize = .zero
     @State private var newNoteTags: [String]?
     @State private var showingNewNote = false
@@ -434,6 +436,7 @@ struct KnowledgeWebView: View {
         let focus = focusSet
         let query = highlight.trimmingCharacters(in: .whitespaces).lowercased()
         let matches = query.isEmpty ? nil : matchingNodes(query: query, byID: byID)
+        let kinds = kindFilter.isEmpty ? nil : kindNodes(kindFilter, byID: byID)
         let showFileNames = alwaysShowNames || scale > 1.1
         let busy = librarian.busyItemIDs
 
@@ -455,6 +458,7 @@ struct KnowledgeWebView: View {
             func dimmed(_ i: Int) -> Bool {
                 if let focus, !focus.contains(i) { return true }
                 if let matches, !matches.contains(i) { return true }
+                if let kinds, !kinds.contains(i) { return true }
                 return false
             }
 
@@ -636,6 +640,19 @@ struct KnowledgeWebView: View {
         return result
     }
 
+    /// Files of the given kinds, plus the concepts they connect to.
+    private func kindNodes(_ kinds: Set<ItemKind>, byID: [UUID: Item]) -> Set<Int> {
+        var result = Set<Int>()
+        for (i, node) in sim.nodes.enumerated() {
+            guard case .item(let id) = node.kind, let item = byID[id], kinds.contains(item.kind) else { continue }
+            result.insert(i)
+            for j in sim.neighbors[i] {
+                if case .concept = sim.nodes[j].kind { result.insert(j) }
+            }
+        }
+        return result
+    }
+
     private var background: some View { Theme.background }
 
     // MARK: Gestures
@@ -760,7 +777,9 @@ struct KnowledgeWebView: View {
                 Button("Fit to Screen") { withAnimation(.spring) { fit() } }
                 Button("Shake Up Layout") { sim.resetLayout() }
             } label: {
-                Image(systemName: "slider.horizontal.3").font(.caption.weight(.semibold)).frame(width: 26, height: 22)
+                Image(systemName: "slider.horizontal.3").font(.caption.weight(.semibold))
+                    .frame(width: 36, height: 36)
+                    .contentShape(Rectangle())
             }
             .menuStyle(.button)
             .buttonStyle(.plain)
@@ -768,22 +787,37 @@ struct KnowledgeWebView: View {
             .fixedSize()
         }
         .foregroundStyle(Theme.labelSecondary)
-        .padding(.horizontal, Theme.Space.s12).padding(.vertical, Theme.Space.s8)
-        .floatingChrome(Capsule())
+        .padding(.horizontal, Theme.Space.s8).padding(.vertical, Theme.Space.s2)
+        // Not interactive: the glass would take the tap on iPhone before the buttons inside it see it.
+        .floatingChrome(Capsule(), interactive: false)
         .padding(.leading, Theme.Space.s20)
         .padding(.top, 80)
     }
 
     private func kindKey(showNames: Bool) -> some View {
-        HStack(spacing: showNames ? Theme.Space.s12 : Theme.Space.s16) {
+        HStack(spacing: 0) {
             ForEach(ItemKind.allCases) { kind in
-                HStack(spacing: Theme.Space.s4) {
-                    Image(systemName: kind.symbol).font(.caption2.weight(.medium))
-                    if showNames { Text(kind.label).font(.caption2.weight(.medium)) }
+                let on = kindFilter.contains(kind)
+                Button {
+                    withAnimation(.easeOut(duration: 0.15)) {
+                        if on { kindFilter.remove(kind) } else { kindFilter.insert(kind) }
+                    }
+                } label: {
+                    HStack(spacing: Theme.Space.s4) {
+                        Image(systemName: kind.symbol).font(.caption2.weight(.medium))
+                        if showNames { Text(kind.label).font(.caption2.weight(.medium)) }
+                    }
+                    .foregroundStyle(on ? Theme.accentInk : Theme.labelSecondary)
+                    .padding(.horizontal, showNames ? Theme.Space.s6 : Theme.Space.s8)
+                    .frame(minWidth: 30, minHeight: 36)
+                    .background(on ? Theme.accentTint : .clear, in: Capsule())
+                    .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
                 .fixedSize()
-                .accessibilityElement(children: .combine)
                 .accessibilityLabel(kind.label)
+                .accessibilityAddTraits(on ? .isSelected : [])
+                .help(on ? "Show all kinds" : "Show only \(kind.label.lowercased())")
             }
         }
     }
