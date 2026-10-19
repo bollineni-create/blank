@@ -19,7 +19,7 @@ struct SettingsView: View {
             } header: {
                 Text("Theme")
             } footer: {
-                Text("Each theme changes the colours, type and corners everywhere in Loom, in light and dark mode.")
+                Text("Each theme is a whole design language: its colours, type, corners, depth, icons and motion, and how the map draws topics, links and the canvas, in light and dark mode.")
             }
 
             Section {
@@ -124,7 +124,10 @@ private struct ThemeRow: View {
                 }
                 .frame(width: 44, height: 30)
             VStack(alignment: .leading, spacing: Theme.Space.s2) {
-                Text(theme.name).font(theme.display.font(size: 17, relativeTo: .body)).foregroundStyle(Theme.label)
+                Text(theme.style.displayCaps ? theme.name.uppercased() : theme.name)
+                    .font(theme.display.font(size: 17, relativeTo: .body))
+                    .tracking(theme.display.tracking)
+                    .foregroundStyle(Theme.label)
                 Text(theme.mood).font(.caption).foregroundStyle(Theme.labelSecondary)
             }
             Spacer(minLength: Theme.Space.s8)
