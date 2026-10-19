@@ -35,7 +35,9 @@ Note for iPhone: with a free Apple ID, apps you sideload expire after 7 days. Re
 
 ## Install on your Mac
 
-To get Loom into your Applications folder, run one command. After that you can open it from the Dock, Launchpad or Spotlight like any other app:
+To get Loom into your Applications folder, double-click **Install Loom.command** in the repository folder in Finder. It builds Loom, installs it in /Applications with iCloud sync on, and opens it. After that you can open it from the Dock, Launchpad or Spotlight like any other app. Double-click it again after you pull changes to update the installed app.
+
+The same thing from Terminal:
 
 ```bash
 ./scripts/install-mac.sh               # builds, installs /Applications/Loom.app and opens it
