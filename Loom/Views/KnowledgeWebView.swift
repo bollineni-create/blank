@@ -503,6 +503,19 @@ final class MapCamera {
     }
 }
 
+/// Measured label sizes, kept across frames: measuring text is the slowest part of drawing a pill.
+final class TextSizeCache {
+    private var sizes: [String: CGSize] = [:]
+
+    func size(of text: GraphicsContext.ResolvedText, key: String, in proposal: CGSize) -> CGSize {
+        if let size = sizes[key] { return size }
+        if sizes.count > 4000 { sizes.removeAll() }
+        let size = text.measure(in: proposal)
+        sizes[key] = size
+        return size
+    }
+}
+
 // MARK: - View
 
 /// The main page: an interactive web of concepts and files.
@@ -523,6 +536,7 @@ struct KnowledgeWebView: View {
 
     @State private var sim = WebSimulation()
     @State private var camera = MapCamera()
+    @State private var textSizes = TextSizeCache()
     /// The view when the current pinch began.
     @State private var pinchStart: (scale: CGFloat, pan: CGSize)?
     @State private var dragMode: DragMode?
@@ -577,8 +591,10 @@ struct KnowledgeWebView: View {
                     camera.pointer = offsetFromCenter(location, size: geometry.size)
                     // While dragging, the hover card is hidden and hit tests would only slow the drag.
                     guard dragMode == nil else { return }
-                    hoverLocation = location
-                    hovered = sim.hitTest(toWorld(location, size: geometry.size), scale: scale)
+                    let hit = sim.hitTest(toWorld(location, size: geometry.size), scale: scale)
+                    if hit != hovered { hovered = hit }
+                    // The location only matters for the hover card, so moves over empty space change nothing.
+                    if hit != nil { hoverLocation = location }
                 case .ended:
                     camera.pointer = nil
                     hovered = nil
@@ -625,6 +641,14 @@ struct KnowledgeWebView: View {
             ctx.scaleBy(x: scale, y: scale)
             let nodes = sim.nodes
             let compact = scale < 0.42
+            // Only what's on screen gets drawn; zoomed in, that's a small part of the web.
+            let margin: CGFloat = 60 / scale
+            let visible = CGRect(x: (-size.width / 2 - pan.width) / scale, y: (-size.height / 2 - pan.height) / scale,
+                                 width: size.width / scale, height: size.height / scale).insetBy(dx: -margin, dy: -margin)
+            func onScreen(_ node: WebSimulation.Node, extra: CGFloat = 0) -> Bool {
+                let r = node.radius * 1.7 + extra
+                return node.x + r >= visible.minX && node.x - r <= visible.maxX && node.y + r >= visible.minY && node.y - r <= visible.maxY
+            }
 
             // The violet → coral light at the map center.
             let glowRadius: CGFloat = 520
@@ -644,6 +668,8 @@ struct KnowledgeWebView: View {
             // Edges: thin curves in the branch color, no glow. Related files get a faint dashed link.
             for link in sim.links {
                 let a = nodes[link.a], b = nodes[link.b]
+                guard max(a.x, b.x) >= visible.minX, min(a.x, b.x) <= visible.maxX,
+                      max(a.y, b.y) >= visible.minY, min(a.y, b.y) <= visible.maxY else { continue }
                 let from = CGPoint(x: a.x, y: a.y), to = CGPoint(x: b.x, y: b.y)
                 var path = Path()
                 path.move(to: from)
@@ -664,10 +690,11 @@ struct KnowledgeWebView: View {
 
             // Files: white discs with a hairline, the kind symbol and a ring in the branch color.
             // Zoomed far out they become plain branch-colored dots.
+            // Shadows are drawn as soft offset discs: a blur filter over the whole layer cost too much per frame.
+            let discShadow = Color(hex: 0x1c1b19, opacity: 0.07)
             ctx.drawLayer { layer in
-                if !compact { layer.addFilter(.shadow(color: Color(hex: 0x1c1b19, opacity: 0.12), radius: 3, x: 0, y: 1)) }
                 for (i, node) in nodes.enumerated() {
-                    guard case .item(let id) = node.kind else { continue }
+                    guard case .item(let id) = node.kind, onScreen(node) else { continue }
                     let c = color(of: node)
                     let isHovered = hovered == i
                     let selected = selection == id
@@ -675,6 +702,11 @@ struct KnowledgeWebView: View {
                     if isHovered || selected { r *= 1.2 }
                     let rect = CGRect(x: node.x - r, y: node.y - r, width: r * 2, height: r * 2)
                     layer.opacity = dimmed(i) ? Theme.dimmedOpacity : 1
+                    if !compact {
+                        let shadowRect = rect.offsetBy(dx: 0, dy: 1 / scale)
+                        layer.fill(Path(ellipseIn: shadowRect.insetBy(dx: -2 / scale, dy: -2 / scale)), with: .color(discShadow))
+                        layer.fill(Path(ellipseIn: shadowRect.insetBy(dx: -1 / scale, dy: -1 / scale)), with: .color(discShadow))
+                    }
 
                     if compact {
                         layer.fill(Path(ellipseIn: rect), with: .color(c))
@@ -713,7 +745,7 @@ struct KnowledgeWebView: View {
 
             // File names under the discs.
             for (i, node) in nodes.enumerated() {
-                guard case .item(let id) = node.kind else { continue }
+                guard case .item(let id) = node.kind, onScreen(node, extra: 120) else { continue }
                 let wanted = showFileNames || hovered == i || selection == id || (focus?.contains(i) ?? false) || (matches?.contains(i) ?? false)
                 guard wanted, !dimmed(i), !compact, let item = byID[id] else { continue }
                 let title = item.displayTitle
@@ -723,27 +755,36 @@ struct KnowledgeWebView: View {
             }
 
             // Concepts: white surface pills with a hairline, a branch-color dot, the name and a count.
-            let fontSize = min(24, max(13, 15 / scale.squareRoot()))
+            // Rounded to half points so measured pill sizes can be reused from frame to frame while zooming.
+            let fontSize = (min(24, max(13, 15 / scale.squareRoot())) * 2).rounded() / 2
             var pills: [(index: Int, rect: CGRect, name: GraphicsContext.ResolvedText, count: GraphicsContext.ResolvedText,
                          nameSize: CGSize, countSize: CGSize)] = []
             for (i, node) in nodes.enumerated() {
                 guard case .concept(let name, let isSpace) = node.kind else { continue }
-                let label = ctx.resolve(Text(isSpace ? name : name.capitalized)
+                let shown = isSpace ? name : name.capitalized
+                // Off-screen pills keep their last size for hit tests; skip drawing them.
+                if let half = sim.pillHalfSizes[i], !onScreen(node, extra: half.width) { continue }
+                let label = ctx.resolve(Text(shown)
                     .font(.system(size: fontSize, weight: .semibold)).foregroundStyle(Theme.label))
                 let count = ctx.resolve(Text("\(node.count)")
                     .font(.system(size: fontSize * 0.72, weight: .bold)).foregroundStyle(Theme.labelSecondary))
-                let nameSize = label.measure(in: CGSize(width: 1000, height: 200))
-                let countSize = count.measure(in: CGSize(width: 200, height: 200))
+                let nameSize = textSizes.size(of: label, key: "n|\(fontSize)|\(shown)", in: CGSize(width: 1000, height: 200))
+                let countSize = textSizes.size(of: count, key: "c|\(fontSize)|\(node.count)", in: CGSize(width: 200, height: 200))
                 let width = fontSize * 0.9 + fontSize * 0.5 + fontSize * 0.45 + nameSize.width + fontSize * 0.5 + countSize.width + fontSize * 0.8 + fontSize * 0.5
                 let height = nameSize.height + fontSize * 0.8
                 let rect = CGRect(x: node.x - width / 2, y: node.y - height / 2, width: width, height: height)
                 pills.append((i, rect, label, count, nameSize, countSize))
                 sim.pillHalfSizes[i] = CGSize(width: width / 2, height: height / 2)
             }
+            let pillShadow = Color(hex: 0x1c1b19, opacity: 0.035)
             ctx.drawLayer { layer in
-                layer.addFilter(.shadow(color: Color(hex: 0x1c1b19, opacity: 0.08), radius: 6, x: 0, y: 3))
                 for pill in pills {
                     layer.opacity = dimmed(pill.index) ? Theme.dimmedOpacity : 1
+                    let shadowRect = pill.rect.offsetBy(dx: 0, dy: 3 / scale)
+                    for spread in [6.0, 4.0, 2.0] as [CGFloat] {
+                        let r = shadowRect.insetBy(dx: -spread / scale, dy: -spread / scale)
+                        layer.fill(Path(roundedRect: r, cornerRadius: r.height / 2), with: .color(pillShadow))
+                    }
                     layer.fill(Path(roundedRect: pill.rect, cornerRadius: pill.rect.height / 2), with: .color(Theme.surface))
                 }
             }
@@ -786,12 +827,14 @@ struct KnowledgeWebView: View {
         while y < size.height {
             var x = originX < 0 ? originX + pitch : originX
             while x < size.width {
-                dots.addEllipse(in: CGRect(x: x - 1, y: y - 1, width: 2, height: 2))
+                dots.move(to: CGPoint(x: x, y: y))
+                dots.addLine(to: CGPoint(x: x, y: y))
                 x += pitch
             }
             y += pitch
         }
-        ctx.fill(dots, with: .color(Theme.mapDot))
+        // Zero-length round-capped strokes draw as 2pt dots, much faster than thousands of tiny ellipses.
+        ctx.stroke(dots, with: .color(Theme.mapDot), style: StrokeStyle(lineWidth: 2, lineCap: .round))
     }
 
     /// When hovering a node or a concept is selected: that node and its direct connections.
