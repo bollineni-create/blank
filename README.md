@@ -35,9 +35,11 @@ Note for iPhone: with a free Apple ID, apps you sideload expire after 7 days. Re
 
 ## Install on your Mac
 
-To get Loom into your Applications folder, double-click **Install Loom.command** in the repository folder in Finder. It builds Loom, installs it in /Applications with iCloud sync on, and opens it. After that you can open it from the Dock, Launchpad or Spotlight like any other app. Double-click it again after you pull changes to update the installed app.
+To get Loom into your Applications folder, double-click **Install Loom.command** in the repository folder in Finder. It gets the latest Loom from GitHub, builds it, installs it in /Applications with iCloud sync on, and opens it. After that you can open it from the Dock, Launchpad or Spotlight like any other app. To update, double-click it again.
 
-The same thing from Terminal:
+It always installs the latest `main`. Edits made on the Mac are put aside in a git stash (`git stash pop` brings them back), and commits that aren't on GitHub are kept on a `loom-backup-…` branch. Offline, it installs the copy that's there. For updates to work, get the folder with `git clone https://github.com/bollineni-create/blank.git` rather than as a zip.
+
+The same build from Terminal, without the update step:
 
 ```bash
 ./scripts/install-mac.sh               # builds, installs /Applications/Loom.app and opens it
