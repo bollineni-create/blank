@@ -336,6 +336,173 @@ final class WebSimulation {
     }
 }
 
+// MARK: - Camera
+
+/// Where the map is looking, and how it glides between views.
+/// Like the simulation, only `moving` is observed: it keeps frames coming while the camera is in motion.
+/// Zoom and position are read as each frame draws, so panning and zooming never re-run the whole page.
+@Observable
+final class MapCamera {
+    static func clamp(_ s: CGFloat) -> CGFloat { min(4, max(0.12, s)) }
+
+    private(set) var moving = false
+
+    @ObservationIgnored private(set) var scale: CGFloat = 0.9
+    /// Where the world's origin sits, as an offset from the view's center.
+    @ObservationIgnored var pan: CGSize = .zero
+    /// The pointer's offset from the view's center while it is over the map, for wheel zoom on Mac.
+    @ObservationIgnored var pointer: CGPoint?
+
+    private struct Flight {
+        let fromCenter: CGPoint, toCenter: CGPoint
+        let fromScale: CGFloat, toScale: CGFloat
+        var start: TimeInterval?
+    }
+
+    @ObservationIgnored private var flight: Flight?
+    /// Leftover speed from a flick, in points per second.
+    @ObservationIgnored private var velocity: CGSize = .zero
+    /// Fingers or pointers currently holding the map.
+    @ObservationIgnored private var holds = 0
+    /// Keeps frames coming briefly after a wheel or trackpad scroll.
+    @ObservationIgnored private var activeUntil: TimeInterval = 0
+    @ObservationIgnored private var lastStep: TimeInterval?
+    @ObservationIgnored private var lastPhysics: TimeInterval = 0
+    @ObservationIgnored private var stopping = false
+
+    /// The world point at the view's center.
+    private var center: CGPoint { CGPoint(x: -pan.width / scale, y: -pan.height / scale) }
+
+    // MARK: Direct control
+
+    /// A finger or pointer took hold: stop any glide and keep frames coming until it lets go.
+    func hold() {
+        flight = nil
+        velocity = .zero
+        holds += 1
+        wake()
+    }
+
+    /// Lets go, carrying on with the flick's speed if it was fast enough to mean it.
+    func letGo(velocity v: CGSize = .zero) {
+        holds = max(0, holds - 1)
+        let speed = hypot(v.width, v.height)
+        if holds == 0, speed > 150 {
+            let cap = min(1, 5000 / speed)
+            velocity = CGSize(width: v.width * cap, height: v.height * cap)
+        }
+    }
+
+    /// Zooms from a starting view to `target`, keeping the screen point `anchor` (offset from the view's center) still.
+    func zoom(fromScale s0: CGFloat, pan p0: CGSize, to target: CGFloat, around anchor: CGPoint) {
+        let s1 = Self.clamp(target)
+        scale = s1
+        pan = CGSize(width: anchor.x - (anchor.x - p0.width) * s1 / s0,
+                     height: anchor.y - (anchor.y - p0.height) * s1 / s0)
+    }
+
+    /// Wheel zoom around the pointer.
+    func zoom(by factor: CGFloat, around anchor: CGPoint) {
+        flight = nil
+        velocity = .zero
+        zoom(fromScale: scale, pan: pan, to: scale * factor, around: anchor)
+        nudge()
+    }
+
+    /// Two-finger scroll on a trackpad.
+    func scroll(by delta: CGSize) {
+        flight = nil
+        velocity = .zero
+        pan.width += delta.width
+        pan.height += delta.height
+        nudge()
+    }
+
+    /// Jumps straight to a view.
+    func set(scale s: CGFloat, pan p: CGSize) {
+        flight = nil
+        velocity = .zero
+        scale = Self.clamp(s)
+        pan = p
+        nudge()
+    }
+
+    // MARK: Glides
+
+    /// Glides to a view, easing out.
+    func fly(scale s: CGFloat, pan p: CGSize) {
+        let s1 = Self.clamp(s)
+        fly(to: CGPoint(x: -p.width / s1, y: -p.height / s1), scale: s1)
+    }
+
+    /// Zoom buttons: glide in or out around the view's center, building on a glide already under way.
+    func zoomStep(_ factor: CGFloat) {
+        fly(to: flight?.toCenter ?? center, scale: Self.clamp((flight?.toScale ?? scale) * factor))
+    }
+
+    private func fly(to c: CGPoint, scale s: CGFloat) {
+        velocity = .zero
+        flight = Flight(fromCenter: center, toCenter: c, fromScale: scale, toScale: s)
+        wake()
+    }
+
+    // MARK: Frames
+
+    /// Advances a glide or a flick to `now`. Runs while a frame renders.
+    func step(at now: TimeInterval) {
+        defer { lastStep = now }
+        if var f = flight {
+            let start = f.start ?? now
+            f.start = start
+            let t = min(1, (now - start) / 0.4)
+            let e = CGFloat(1 - pow(1 - t, 3))
+            // Zoom moves evenly in ratio and the center in a straight line, so nothing swings sideways.
+            scale = f.fromScale * CGFloat(pow(Double(f.toScale / f.fromScale), Double(e)))
+            let c = CGPoint(x: f.fromCenter.x + (f.toCenter.x - f.fromCenter.x) * e,
+                            y: f.fromCenter.y + (f.toCenter.y - f.fromCenter.y) * e)
+            pan = CGSize(width: -c.x * scale, height: -c.y * scale)
+            flight = t < 1 ? f : nil
+        } else if velocity != .zero, let last = lastStep {
+            let dt = CGFloat(min(now - last, 1.0 / 30))
+            pan.width += velocity.width * dt
+            pan.height += velocity.height * dt
+            // About the same slowdown as a scroll view's flick.
+            let decay = CGFloat(pow(0.135, Double(dt)))
+            velocity = CGSize(width: velocity.width * decay, height: velocity.height * decay)
+            if hypot(velocity.width, velocity.height) < 20 { velocity = .zero }
+        }
+        if moving { stopIfIdle(now) }
+    }
+
+    /// Frames can come at 120 Hz while the camera moves; the physics keeps stepping at 60.
+    func physicsFrameDue(at now: TimeInterval) -> Bool {
+        guard now - lastPhysics >= 1.0 / 60 - 0.004 else { return false }
+        lastPhysics = now
+        return true
+    }
+
+    private var idle: Bool { holds == 0 && flight == nil && velocity == .zero }
+
+    private func wake() {
+        if !moving { moving = true }
+    }
+
+    private func nudge() {
+        activeUntil = Date.timeIntervalSinceReferenceDate + 0.12
+        wake()
+    }
+
+    private func stopIfIdle(_ now: TimeInterval) {
+        guard idle, now >= activeUntil, !stopping else { return }
+        // This runs mid-render, so the observed change waits for the next turn.
+        stopping = true
+        DispatchQueue.main.async {
+            self.stopping = false
+            if self.idle, Date.timeIntervalSinceReferenceDate >= self.activeUntil { self.moving = false }
+        }
+    }
+}
+
 // MARK: - View
 
 /// The main page: an interactive web of concepts and files.
@@ -355,9 +522,9 @@ struct KnowledgeWebView: View {
     @AppStorage("web.alwaysShowNames") private var alwaysShowNames = false
 
     @State private var sim = WebSimulation()
-    @State private var scale: CGFloat = 0.9
-    @State private var baseScale: CGFloat = 0.9
-    @State private var pan: CGSize = .zero
+    @State private var camera = MapCamera()
+    /// The view when the current pinch began.
+    @State private var pinchStart: (scale: CGFloat, pan: CGSize)?
     @State private var dragMode: DragMode?
     @State private var hovered: Int?
     @State private var hoverLocation: CGPoint = .zero
@@ -367,11 +534,20 @@ struct KnowledgeWebView: View {
     @State private var viewSize: CGSize = .zero
     @State private var newNoteTags: [String]?
     @State private var showingNewNote = false
+    #if os(macOS)
+    @State private var scrollMonitor: Any?
+    #endif
 
     private enum DragMode {
         case node(Int)
-        case pan(start: CGSize)
+        /// Panning from `start`, counting finger movement from `origin`.
+        case pan(start: CGSize, origin: CGSize)
+        /// A pinch took over; the drag waits for it to finish.
+        case paused
     }
+
+    private var scale: CGFloat { camera.scale }
+    private var pan: CGSize { camera.pan }
 
     /// Concepts take the branch palette in order; items share their concept's color.
     private func color(of node: WebSimulation.Node) -> Color {
@@ -387,23 +563,24 @@ struct KnowledgeWebView: View {
     var body: some View {
         let byID = Dictionary(uniqueKeysWithValues: items.map { ($0.id, $0) })
         GeometryReader { geometry in
-            TimelineView(.animation(minimumInterval: 1.0 / 60, paused: sim.settled)) { _ in
-                let _ = sim.tick()
+            // Full display rate while the camera moves; 60 Hz is plenty while only the physics runs.
+            TimelineView(.animation(minimumInterval: camera.moving ? nil : 1.0 / 60, paused: sim.settled && !camera.moving)) { context in
+                let _ = advance(to: context.date.timeIntervalSinceReferenceDate)
                 canvas(byID: byID, size: geometry.size)
             }
             .contentShape(Rectangle())
             .gesture(dragGesture(size: geometry.size))
-            .simultaneousGesture(
-                MagnifyGesture()
-                    .onChanged { scale = clampScale(baseScale * $0.magnification) }
-                    .onEnded { _ in baseScale = scale }
-            )
+            .simultaneousGesture(magnifyGesture(size: geometry.size))
             .onContinuousHover { phase in
                 switch phase {
                 case .active(let location):
+                    camera.pointer = offsetFromCenter(location, size: geometry.size)
+                    // While dragging, the hover card is hidden and hit tests would only slow the drag.
+                    guard dragMode == nil else { return }
                     hoverLocation = location
                     hovered = sim.hitTest(toWorld(location, size: geometry.size), scale: scale)
                 case .ended:
+                    camera.pointer = nil
                     hovered = nil
                 }
             }
@@ -412,8 +589,10 @@ struct KnowledgeWebView: View {
             .onAppear {
                 viewSize = geometry.size
                 sim.rebuild(items: items, spaces: spaces, linkSimilar: linkSimilar)
-                fit()
+                fit(animated: false)
+                startScrollMonitor()
             }
+            .onDisappear { stopScrollMonitor() }
             .onChange(of: geometry.size) { _, size in viewSize = size }
         }
         .background(background)
@@ -661,31 +840,91 @@ struct KnowledgeWebView: View {
         CGPoint(x: (p.x - size.width / 2 - pan.width) / scale, y: (p.y - size.height / 2 - pan.height) / scale)
     }
 
+    private func offsetFromCenter(_ p: CGPoint, size: CGSize) -> CGPoint {
+        CGPoint(x: p.x - size.width / 2, y: p.y - size.height / 2)
+    }
+
+    /// One frame: move the camera, then the physics.
+    private func advance(to now: TimeInterval) {
+        camera.step(at: now)
+        if camera.physicsFrameDue(at: now) { sim.tick() }
+    }
+
+    /// Pinch to zoom around the point between your fingers (or the pointer, on a trackpad).
+    private func magnifyGesture(size: CGSize) -> some Gesture {
+        MagnifyGesture()
+            .onChanged { value in
+                if pinchStart == nil {
+                    pinchStart = (camera.scale, camera.pan)
+                    camera.hold()
+                    pauseDrag()
+                }
+                guard let start = pinchStart else { return }
+                camera.zoom(fromScale: start.scale, pan: start.pan, to: start.scale * value.magnification,
+                            around: offsetFromCenter(value.startLocation, size: size))
+            }
+            .onEnded { _ in
+                pinchStart = nil
+                camera.letGo()
+            }
+    }
+
+    /// A pinch started: the finger that began a drag stops moving the map or a node.
+    private func pauseDrag() {
+        switch dragMode {
+        case .node(let i): sim.release(i)
+        case .pan: camera.letGo()
+        case .paused, nil: break
+        }
+        if dragMode != nil { dragMode = .paused }
+    }
+
     /// One gesture for everything: drag a node to move it, drag empty space to pan, tap to open.
     private func dragGesture(size: CGSize) -> some Gesture {
         DragGesture(minimumDistance: 0)
             .onChanged { value in
-                if dragMode == nil {
+                if pinchStart != nil {
+                    if dragMode == nil { dragMode = .paused }
+                    return
+                }
+                switch dragMode {
+                case nil:
                     if let i = sim.hitTest(toWorld(value.startLocation, size: size), scale: scale) {
                         dragMode = .node(i)
                     } else {
-                        dragMode = .pan(start: pan)
+                        camera.hold()
+                        dragMode = .pan(start: pan, origin: .zero)
                     }
+                case .paused:
+                    // The pinch ended with a finger still down: carry on panning from here, without a jump.
+                    camera.hold()
+                    dragMode = .pan(start: pan, origin: value.translation)
+                default:
+                    break
                 }
                 let moved = hypot(value.translation.width, value.translation.height) > 3
                 switch dragMode {
                 case .node(let i) where moved:
                     sim.pin(i, at: toWorld(value.location, size: size))
-                case .pan(let start):
-                    pan = CGSize(width: start.width + value.translation.width, height: start.height + value.translation.height)
+                case .pan(let start, let origin):
+                    camera.pan = CGSize(width: start.width + value.translation.width - origin.width,
+                                        height: start.height + value.translation.height - origin.height)
                 default:
                     break
                 }
             }
             .onEnded { value in
                 let moved = hypot(value.translation.width, value.translation.height) > 3
-                if case .node(let i) = dragMode { sim.release(i) }
-                if !moved { handleTap(at: toWorld(value.location, size: size)) }
+                switch dragMode {
+                case .node(let i):
+                    sim.release(i)
+                    if !moved { handleTap(at: toWorld(value.location, size: size)) }
+                case .pan:
+                    camera.letGo(velocity: value.velocity)
+                    if !moved { handleTap(at: toWorld(value.location, size: size)) }
+                case .paused, nil:
+                    break
+                }
                 dragMode = nil
             }
     }
@@ -706,39 +945,58 @@ struct KnowledgeWebView: View {
 
     // MARK: Camera
 
-    private func clampScale(_ s: CGFloat) -> CGFloat { min(4, max(0.12, s)) }
-
-    private func fit() {
+    private func fit(animated: Bool = true) {
         let b = sim.bounds
         guard b.width > 0, b.height > 0, viewSize.width > 0 else { return }
-        let s = clampScale(min((viewSize.width - 80) / b.width, (viewSize.height - 220) / b.height))
-        scale = s
-        baseScale = s
-        pan = CGSize(width: -b.midX * s, height: -b.midY * s + 20)
+        let s = MapCamera.clamp(min((viewSize.width - 80) / b.width, (viewSize.height - 220) / b.height))
+        let p = CGSize(width: -b.midX * s, height: -b.midY * s + 20)
+        if animated { camera.fly(scale: s, pan: p) } else { camera.set(scale: s, pan: p) }
     }
 
     private func focus(on id: String) {
         if sim.position(of: id) == nil { sim.rebuild(items: items, spaces: spaces, linkSimilar: linkSimilar) }
         guard let p = sim.position(of: id) else { return }
         let s = max(scale, 1.2)
-        withAnimation(.spring(duration: 0.5)) {
-            scale = s
-            baseScale = s
-            pan = CGSize(width: -p.x * s, height: -p.y * s)
+        camera.fly(scale: s, pan: CGSize(width: -p.x * s, height: -p.y * s))
+    }
+
+    #if os(macOS)
+    /// Trackpad: two-finger scroll pans. Mouse wheel, or ⌘ with either, zooms around the pointer.
+    private func startScrollMonitor() {
+        guard scrollMonitor == nil else { return }
+        let camera = camera
+        scrollMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { event in
+            guard let anchor = camera.pointer else { return event }
+            if event.modifierFlags.contains(.command) || !event.hasPreciseScrollingDeltas {
+                let step = event.hasPreciseScrollingDeltas ? 0.01 : 0.1
+                camera.zoom(by: CGFloat(exp(Double(event.scrollingDeltaY) * step)), around: anchor)
+            } else {
+                camera.scroll(by: CGSize(width: event.scrollingDeltaX, height: event.scrollingDeltaY))
+            }
+            return nil
         }
     }
 
+    private func stopScrollMonitor() {
+        if let scrollMonitor { NSEvent.removeMonitor(scrollMonitor) }
+        scrollMonitor = nil
+    }
+    #else
+    private func startScrollMonitor() {}
+    private func stopScrollMonitor() {}
+    #endif
+
     private var zoomControls: some View {
         VStack(spacing: 0) {
-            Button { withAnimation(.spring) { scale = clampScale(scale * 1.3); baseScale = scale } } label: {
+            Button { camera.zoomStep(1.3) } label: {
                 Image(systemName: "plus").frame(width: 40, height: 40).contentShape(Rectangle())
             }
             Rectangle().fill(Theme.hairline).frame(width: 24, height: 1)
-            Button { withAnimation(.spring) { scale = clampScale(scale / 1.3); baseScale = scale } } label: {
+            Button { camera.zoomStep(1 / 1.3) } label: {
                 Image(systemName: "minus").frame(width: 40, height: 40).contentShape(Rectangle())
             }
             Rectangle().fill(Theme.hairline).frame(width: 24, height: 1)
-            Button { withAnimation(.spring) { fit() } } label: {
+            Button { fit() } label: {
                 Image(systemName: "arrow.up.left.and.arrow.down.right").frame(width: 40, height: 40).contentShape(Rectangle())
             }
         }
@@ -774,7 +1032,7 @@ struct KnowledgeWebView: View {
                 Toggle("Link Related Files", isOn: $linkSimilar)
                 Toggle("Always Show File Names", isOn: $alwaysShowNames)
                 Divider()
-                Button("Fit to Screen") { withAnimation(.spring) { fit() } }
+                Button("Fit to Screen") { fit() }
                 Button("Shake Up Layout") { sim.resetLayout() }
             } label: {
                 Image(systemName: "slider.horizontal.3").font(.caption.weight(.semibold))
