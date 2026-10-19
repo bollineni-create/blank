@@ -111,7 +111,9 @@ final class Item {
     var attachmentURL: URL? {
         guard let attachmentName else { return nil }
         let url = AttachmentStore.url(for: attachmentName)
-        if let attachmentData, !FileManager.default.fileExists(atPath: url.path) {
+        // Check the file first: reading `attachmentData` loads the whole file into memory, and views
+        // ask for this URL on every redraw, which froze the iPhone on a video.
+        if !FileManager.default.fileExists(atPath: url.path), let attachmentData {
             try? attachmentData.write(to: url, options: .atomic)
         }
         return url
