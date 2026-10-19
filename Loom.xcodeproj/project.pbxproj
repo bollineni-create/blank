@@ -17,7 +17,6 @@
 		2240BCA167FF94F1C417B2FE /* ActivityDot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 481DA4356F3BCC75AB257A36 /* ActivityDot.swift */; };
 		25727A043D7990347AE7692B /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A21E5E469558289327E4E0D6 /* SettingsView.swift */; };
 		25C00B662581EABF6849A492 /* AttachmentStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56BF407E32084C0D3E60EB71 /* AttachmentStore.swift */; };
-		2D7F41B82B3381686E000282 /* LlamaKit in Frameworks */ = {isa = PBXBuildFile; productRef = 7F869BB654D73DA332130039 /* LlamaKit */; };
 		2E32A09F7CDE6B559731BAC7 /* AttachmentStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56BF407E32084C0D3E60EB71 /* AttachmentStore.swift */; };
 		31F79A531A0B2BA02485B19D /* ItemDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1CE78FB30B14E1B81016F21 /* ItemDetailView.swift */; };
 		32E4717DFE40BFB741C3C716 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA06BE8A3629DA66236A6B84 /* RootView.swift */; };
@@ -42,7 +41,6 @@
 		C50308E77E669A8DDA2F03B9 /* Librarian.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1B54E41521299C50BE3D37E /* Librarian.swift */; };
 		CF4AF1C1F8209D7D759EA3BC /* LoomApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B517E6E2DF8C49D037D18E77 /* LoomApp.swift */; };
 		D4E2EA5A6312EA91C8ED2903 /* LoomIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAA71FBB836AE10DEB5B73D3 /* LoomIntents.swift */; };
-		D8EECAED255CEB9AABE09C72 /* LlamaKit in Frameworks */ = {isa = PBXBuildFile; productRef = CED5AACD91F2CD2DA4E1CDD9 /* LlamaKit */; };
 		E5C57DA47F135E728836C1CD /* DesignTokens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F45EDFA94490EC399769C28 /* DesignTokens.swift */; };
 		F9C93FA2624BB7F010F22C1A /* Librarian.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1B54E41521299C50BE3D37E /* Librarian.swift */; };
 		FB7C6ADF628456C9C55FEFBA /* SearchIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A26B1BBAE0BD26A7C4827CC /* SearchIndex.swift */; };
@@ -55,7 +53,6 @@
 		481DA4356F3BCC75AB257A36 /* ActivityDot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityDot.swift; sourceTree = "<group>"; };
 		56BF407E32084C0D3E60EB71 /* AttachmentStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AttachmentStore.swift; sourceTree = "<group>"; };
 		5B730C16E1C8CAD0A806AFAE /* ContentExtractor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentExtractor.swift; sourceTree = "<group>"; };
-		5B86CA8F2FAC50580B20250F /* LlamaKit */ = {isa = PBXFileReference; lastKnownFileType = folder; name = LlamaKit; path = LlamaKit; sourceTree = SOURCE_ROOT; };
 		66584BDBEBAFB7C4B97B01B1 /* Item.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Item.swift; sourceTree = "<group>"; };
 		6E6E64FD9D6B923A722BBACC /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		77B58BC735B04B17DF4ADD1D /* LLMService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LLMService.swift; sourceTree = "<group>"; };
@@ -81,7 +78,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				2D7F41B82B3381686E000282 /* LlamaKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -89,21 +85,12 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				D8EECAED255CEB9AABE09C72 /* LlamaKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
-		1B2B68E2C82064F34C4B784C /* Packages */ = {
-			isa = PBXGroup;
-			children = (
-				5B86CA8F2FAC50580B20250F /* LlamaKit */,
-			);
-			name = Packages;
-			sourceTree = "<group>";
-		};
 		479DC8F9E77C38BB40CF809A /* Models */ = {
 			isa = PBXGroup;
 			children = (
@@ -165,7 +152,6 @@
 			isa = PBXGroup;
 			children = (
 				B6CBFC678F4F052F89B3CA66 /* Loom */,
-				1B2B68E2C82064F34C4B784C /* Packages */,
 				AE2495C2DD7C4012BED6E594 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -222,9 +208,6 @@
 			dependencies = (
 			);
 			name = "Loom-iOS";
-			packageProductDependencies = (
-				7F869BB654D73DA332130039 /* LlamaKit */,
-			);
 			productName = "Loom-iOS";
 			productReference = 828346054F597B13F6AB9134 /* Loom-iOS.app */;
 			productType = "com.apple.product-type.application";
@@ -242,9 +225,6 @@
 			dependencies = (
 			);
 			name = "Loom-macOS";
-			packageProductDependencies = (
-				CED5AACD91F2CD2DA4E1CDD9 /* LlamaKit */,
-			);
 			productName = "Loom-macOS";
 			productReference = 18DB0148C1083261EB607736 /* Loom-macOS.app */;
 			productType = "com.apple.product-type.application";
@@ -277,9 +257,6 @@
 			);
 			mainGroup = B380268C9C7FBB9A4D2886D6;
 			minimizedProjectReferenceProxies = 1;
-			packageReferences = (
-				831386817012E6BED52B50A8 /* XCLocalSwiftPackageReference "LlamaKit" */,
-			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = AE2495C2DD7C4012BED6E594 /* Products */;
 			projectDirPath = "";
@@ -616,24 +593,6 @@
 			defaultConfigurationName = Debug;
 		};
 /* End XCConfigurationList section */
-
-/* Begin XCLocalSwiftPackageReference section */
-		831386817012E6BED52B50A8 /* XCLocalSwiftPackageReference "LlamaKit" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = LlamaKit;
-		};
-/* End XCLocalSwiftPackageReference section */
-
-/* Begin XCSwiftPackageProductDependency section */
-		7F869BB654D73DA332130039 /* LlamaKit */ = {
-			isa = XCSwiftPackageProductDependency;
-			productName = LlamaKit;
-		};
-		CED5AACD91F2CD2DA4E1CDD9 /* LlamaKit */ = {
-			isa = XCSwiftPackageProductDependency;
-			productName = LlamaKit;
-		};
-/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 32B58EFB3FEA3E3E81D94DBD /* Project object */;
 }

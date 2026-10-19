@@ -2,9 +2,6 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- Lets the app use more RAM so 1-4B parameter models fit on iPhone. -->
-	<key>com.apple.developer.kernel.increased-memory-limit</key>
-	<true/>
 	<!-- iCloud sync: the library lives in this private CloudKit container on every device. -->
 	<key>com.apple.developer.icloud-container-identifiers</key>
 	<array>

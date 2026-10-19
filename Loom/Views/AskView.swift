@@ -187,8 +187,8 @@ struct AskView: View {
         streamingSources = sourceIDs
         streaming = ""
 
-        let prompt = Self.buildPrompt(question: question, sources: Array(hits.prefix(llm.usesAppleModel ? 4 : 6)),
-                                      history: Array(history), perItem: Self.perItemBudget(llm))
+        let prompt = Self.buildPrompt(question: question, sources: Array(hits.prefix(4)),
+                                      history: Array(history), perItem: Self.perItemBudget)
 
         task = Task {
             var answer = ""
@@ -220,16 +220,8 @@ struct AskView: View {
     make clear that part isn't from their library. Be concise and use Markdown for lists.
     """
 
-    /// Characters of each source item to include; Apple's model has a smaller context window.
-    @MainActor
-    static func perItemBudget(_ llm: LLMService) -> Int {
-        if llm.usesAppleModel { return 700 }
-        #if os(macOS)
-        return 1800
-        #else
-        return 900
-        #endif
-    }
+    /// Characters of each source item to include; Apple's model has a small context window.
+    static let perItemBudget = 700
 
     static func buildPrompt(question: String, sources: [Item], history: [ChatMessage], perItem: Int) -> String {
         // The question goes first and the instruction last, so small on-device models answer it
@@ -403,7 +395,7 @@ struct AIAvailabilityNotice: View {
             VStack(alignment: .leading, spacing: Theme.Space.s8) {
                 Text(Self.message(for: llm)).font(.callout).foregroundStyle(Theme.label)
                 if showsAction, llm.appleAvailability != .notReady {
-                    Button("Choose a model") {
+                    Button("Open Settings") {
                         NotificationCenter.default.post(name: .loomOpenSettings, object: nil)
                     }
                     .font(.callout.weight(.semibold))
@@ -419,23 +411,19 @@ struct AIAvailabilityNotice: View {
 
     @MainActor
     static func message(for llm: LLMService) -> String {
-        switch llm.state {
-        case .downloading: return "Your model is downloading…"
-        case .loading: return "Loading your model…"
-        case .failed: return "Your model couldn't load. Choose another in Settings."
-        default: break
-        }
         switch llm.appleAvailability {
+        case .available:
+            return "Apple Intelligence is ready."
         case .notEnabled:
-            return "Apple Intelligence is off. Turn it on in Settings, or download a Loom model."
+            return "Apple Intelligence is off. Turn it on in the system Settings to use Loom's AI features."
         case .deviceNotEligible:
-            return "This device can't run Apple Intelligence. Loom will use a downloaded model instead."
+            return "This device can't run Apple Intelligence, so Loom's AI features are unavailable."
         case .notReady:
             return "The model is getting ready…"
-        case .available where !llm.preferAppleIntelligence:
-            return "Apple Intelligence is turned off for Loom. Turn it back on, or download a Loom model."
-        default:
-            return "Download a Loom model to start. After that, nothing leaves your device."
+        case .unsupportedOS:
+            return "Loom's AI features need iOS 26 or macOS 26 with Apple Intelligence."
+        case .unavailable:
+            return "Apple Intelligence isn't available right now."
         }
     }
 }

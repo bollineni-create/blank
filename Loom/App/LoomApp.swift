@@ -16,7 +16,6 @@ final class LoomServices {
     let router = LoomRouter()
 
     private init() {
-        LLMService.configureEnvironment()
         llm = LLMService()
         librarian = Librarian(llm: llm)
         // Listens before the library opens, so it hears iCloud's first setup report.
@@ -32,7 +31,7 @@ final class LoomServices {
         }
     }
 
-    /// Connects the librarian to the database and loads the model. Safe to call more than once.
+    /// Connects the librarian to the database and checks the model. Safe to call more than once.
     func start() {
         guard librarian.context == nil else { return }
         let context = container.mainContext
@@ -46,7 +45,6 @@ final class LoomServices {
         librarian.upgradeOldSummaries()
         librarian.backfillAttachmentsForSync()
         llm.refreshAppleAvailability()
-        if !llm.usesAppleModel { llm.loadSelectedIfDownloaded() }
         librarian.runQueue()
     }
 }

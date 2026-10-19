@@ -45,7 +45,7 @@ final class Librarian {
             switch self {
             case .copying: "Copying into your library…"
             case .reading(let what): what
-            case .waitingForModel: "Waiting for an AI model (Settings)"
+            case .waitingForModel: "Waiting for Apple Intelligence"
             case .queued: "Queued for summary…"
             case .summarizing: "Summarizing lessons…"
             case .done: "Added"
@@ -460,7 +460,7 @@ final class Librarian {
     /// Bump when the organizing prompt changes; items made with older versions are redone.
     static let aiVersion = 2
 
-    private struct Organized: Decodable {
+    private struct Organized {
         var title: String?
         var summary: String?
         var takeaways: [String]?
@@ -491,41 +491,13 @@ final class Librarian {
             return
         }
         let existing = topTags(limit: 30).joined(separator: ", ")
-        let prompt = """
-        Read this saved \(item.kind.rawValue) from a personal knowledge library and capture what is worth remembering from it.
-
-        CONTENT:
-        \"\"\"
-        \(text)
-        \"\"\"
-
-        Respond with only a JSON object, no other text:
-        {"title": "short descriptive title, at most 8 words", "summary": "2-3 sentences stating the main finding, argument or lesson: what the reader should learn or remember, not a description of the document", "takeaways": ["3 to 5 short, specific lessons, facts, numbers or action items from the content, each one sentence"], "tags": ["2 to 5 short lowercase topic tags"]}
-        If the content is too thin to learn from, keep takeaways to what it actually says.
-        Use only facts from the content. Never write about Loom, this library or tags.
-        \(existing.isEmpty ? "" : "Prefer reusing these existing tags when they fit: \(existing)")
-        """
         do {
-            let parsed: Organized
-            if llm.usesAppleModel {
-                // Guided generation fills fixed fields, so there's no JSON to parse.
-                let fields = try await llm.organizeWithAppleModel(
-                    Self.applePrompt(kind: item.kind, text: text, existingTags: existing),
-                    instructions: "You are a precise librarian for a private personal knowledge library.")
-                parsed = Organized(title: fields.title, summary: fields.summary, takeaways: fields.takeaways,
+            // Guided generation fills fixed fields, so there's no JSON to parse.
+            let fields = try await llm.organizeWithAppleModel(
+                Self.applePrompt(kind: item.kind, text: text, existingTags: existing),
+                instructions: "You are a precise librarian for a private personal knowledge library.")
+            let parsed = Organized(title: fields.title, summary: fields.summary, takeaways: fields.takeaways,
                                    tags: Self.relevantTags(fields.tags, existing: existing, content: text))
-            } else {
-                let reply = try await llm.generate(
-                    system: "You are a precise librarian. You only ever reply with valid JSON.",
-                    prompt: prompt, maxTokens: 550, temperature: 0.2)
-                guard let json = Self.parseJSON(reply) else {
-                    item.aiStatus = .failed
-                    setStage(item, .failed("Couldn't summarize; try Regenerate"), create: false)
-                    try? context?.save()
-                    return
-                }
-                parsed = json
-            }
             // Keep titles the user (or the web page) gave, except bare hostnames and empty ones.
             if let title = parsed.title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty,
                item.title.isEmpty || item.title == item.url?.host() {
@@ -553,7 +525,7 @@ final class Librarian {
             item.aiStatus = .skipped
             activities.removeAll { $0.id == item.id }
         } catch let error as AppleModelError where error.isRuntimeFailure && !llm.isReady {
-            // The model stopped responding: wait for it (or a downloaded model) instead of failing the item.
+            // The model stopped responding: wait for it instead of failing the item.
             item.aiStatus = .pending
             setStage(item, .waitingForModel, create: false)
         } catch {
@@ -563,7 +535,7 @@ final class Librarian {
         try? context?.save()
     }
 
-    /// Roughly how much text we feed the model per item; smaller on iPhone and for Apple's model.
+    /// Roughly how much text we feed the model per item.
     private var llmInputBudget: Int { llm.inputBudgetCharacters }
 
     private static func applePrompt(kind: ItemKind, text: String, existingTags: String) -> String {
@@ -588,12 +560,6 @@ final class Librarian {
             guard known.contains(t) else { return true }
             return t.split(separator: " ").contains { haystack.contains(String($0.prefix(5))) }
         }
-    }
-
-    private static func parseJSON(_ reply: String) -> Organized? {
-        guard let start = reply.firstIndex(of: "{"), let end = reply.lastIndex(of: "}"), start < end else { return nil }
-        let json = String(reply[start...end])
-        return try? JSONDecoder().decode(Organized.self, from: Data(json.utf8))
     }
 
     func topTags(limit: Int) -> [String] {

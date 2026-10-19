@@ -105,7 +105,7 @@ struct RootView: View {
         }
         .sheet(isPresented: $showingOnboarding) { OnboardingView() }
         .onAppear {
-            if !llm.hasChosenModel { showingOnboarding = true }
+            if !UserDefaults.standard.bool(forKey: OnboardingView.seenKey) { showingOnboarding = true }
             handleRouter()
         }
         #if os(macOS)
@@ -266,7 +266,7 @@ struct RootView: View {
                 CaptureButton()
                 HStack(spacing: Theme.Space.s8) {
                     Image(systemName: "sparkles").foregroundStyle(Theme.accentInk)
-                    TextField(llm.isReady ? "Ask your brain anything…" : "Ask your brain (choose a model in Settings)", text: $question)
+                    TextField(llm.isReady ? "Ask your brain anything…" : "Ask your brain (needs Apple Intelligence)", text: $question)
                         .textFieldStyle(.plain)
                         .foregroundStyle(Theme.label)
                         .onSubmit(ask)
@@ -294,7 +294,7 @@ struct RootView: View {
 }
 
 /// Compact status of the on-device model, shown at the top right.
-/// Names the active model (Apple Intelligence or a downloaded one) and calmly shows availability states.
+/// Names the active model and calmly shows availability states.
 struct ModelStatusChip: View {
     @Environment(LLMService.self) private var llm
     @Environment(Librarian.self) private var librarian
@@ -330,27 +330,15 @@ struct ModelStatusChip: View {
                 Text(llm.activeModelName ?? "Ready")
             }
         } else {
-            switch llm.state {
-            case .downloading(let p):
-                ProgressView(value: p).frame(width: 50)
-                Text("\(Int(p * 100))%").monospacedDigit()
-            case .loading:
-                ProgressView().controlSize(.small)
-                if !isCompact { Text("Loading model…") }
-            case .failed:
-                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Theme.statusWarning)
-                Text("Model error")
-            case .notLoaded, .ready:
-                appleState
-            }
+            appleState
         }
     }
 
-    /// No downloaded model is loaded: say where Apple Intelligence stands, in two or three words.
+    /// Apple Intelligence can't answer yet: say where it stands, in two or three words.
     @ViewBuilder
     private var appleState: some View {
         switch llm.appleAvailability {
-        case .notReady where llm.preferAppleIntelligence:
+        case .notReady:
             ProgressView().controlSize(.small)
             if !isCompact { Text("Getting ready…") }
         case .notEnabled:

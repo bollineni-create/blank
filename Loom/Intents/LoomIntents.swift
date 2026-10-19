@@ -70,16 +70,10 @@ enum LoomIntentSupport {
         (try? context.fetch(FetchDescriptor<Item>(sortBy: [SortDescriptor(\.createdAt, order: .reverse)]))) ?? []
     }
 
-    /// Waits briefly for a downloaded llama.cpp model to load when Apple Intelligence isn't available.
+    /// The model, when Apple Intelligence can answer right now.
     static func readyModel() async -> LLMService? {
         let llm = services.llm
-        if llm.isReady { return llm }
-        guard llm.isDownloaded(llm.selectedModel) else { return nil }
-        llm.loadSelectedIfDownloaded()
-        for _ in 0..<120 where !llm.isReady {
-            if case .failed = llm.state { break }
-            try? await Task.sleep(for: .milliseconds(500))
-        }
+        llm.refreshAppleAvailability()
         return llm.isReady ? llm : nil
     }
 
@@ -154,7 +148,7 @@ struct AskLoomIntent: AppIntent {
         }
 
         let hits = Array(SearchIndex.rank(LoomIntentSupport.allItems(), query: q, limit: 5).map(\.item))
-        let prompt = AskView.buildPrompt(question: q, sources: hits, history: [], perItem: AskView.perItemBudget(llm))
+        let prompt = AskView.buildPrompt(question: q, sources: hits, history: [], perItem: AskView.perItemBudget)
         let answer = try await llm.generate(system: AskView.systemPrompt, prompt: prompt, maxTokens: 400, temperature: 0.4)
         let cited = AskView.renumberCitations(answer, sourceIDs: hits.map(\.id))
         let sources = cited.sourceIDs.compactMap { id in hits.first { $0.id == id } }.prefix(3).map(ItemEntity.init(item:))
