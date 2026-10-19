@@ -47,7 +47,7 @@ struct GeneratedOrganization {
 #endif
 
 /// Runs prompts on Apple's on-device Foundation Model (Apple Intelligence).
-/// Every call checks availability first, so callers can fall back to a downloaded llama.cpp model.
+/// Every call checks availability first.
 enum AppleModelEngine {
     static var availability: AppleModelAvailability {
         #if canImport(FoundationModels)
@@ -132,7 +132,7 @@ enum AppleModelEngine {
 /// Calm, one-line versions of the Foundation Models errors.
 struct AppleModelError: LocalizedError {
     let message: String
-    /// The model itself isn't working right now (not a problem with this prompt): pause it and fall back.
+    /// The model itself isn't working right now (not a problem with this prompt): pause it and wait.
     var isRuntimeFailure = false
 
     init(message: String, isRuntimeFailure: Bool) {

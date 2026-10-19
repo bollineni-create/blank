@@ -20,14 +20,10 @@ enum ActivityLevel {
         if activities.contains(where: \.stage.isAdding) { return .adding }
         let aiWorking = librarian.processingCount > 0
             || activities.contains { $0.stage == .queued || $0.stage == .summarizing }
-        switch llm.state {
-        case .downloading, .loading: return .thinking
-        default: break
-        }
         if aiWorking { return .thinking }
         if llm.isReady { return .ready }
         // Apple Intelligence still preparing counts as busy, not missing.
-        if case .notReady = llm.appleAvailability, llm.preferAppleIntelligence { return .thinking }
+        if case .notReady = llm.appleAvailability { return .thinking }
         return .unavailable
     }
 }
@@ -91,11 +87,6 @@ struct ActivityPanel: View {
             }
             .foregroundStyle(Theme.label)
             .padding(Theme.Space.s12)
-
-            if case .downloading(let p) = llm.state {
-                ProgressView(value: p).tint(Theme.statusBusy)
-                    .padding(.horizontal, Theme.Space.s12).padding(.bottom, Theme.Space.s8)
-            }
 
             if !activities.isEmpty || background > 0 {
                 Rectangle().fill(Theme.hairline).frame(height: 1)
@@ -191,11 +182,7 @@ struct ActivityPanel: View {
     }
 
     private var modelLine: String {
-        switch llm.state {
-        case .downloading(let p): return "Downloading the AI model… \(Int(p * 100))%"
-        case .loading: return "Loading the AI model…"
-        default: return llm.isReady ? (llm.activeModelName ?? "AI ready") : AIAvailabilityNotice.message(for: llm)
-        }
+        llm.isReady ? (llm.activeModelName ?? "AI ready") : AIAvailabilityNotice.message(for: llm)
     }
 
     static let gettingReady = "AI is getting ready…"

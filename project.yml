@@ -5,7 +5,6 @@ options:
     iOS: "17.0"
     macOS: "14.0"
   createIntermediateGroups: true
-  preGenCommand: LlamaKit/fetch-llama.sh
 
 settings:
   base:
@@ -15,18 +14,11 @@ settings:
     DEVELOPMENT_TEAM: ""   # set your Apple ID team in Xcode > Signing & Capabilities
     CODE_SIGN_STYLE: Automatic
 
-packages:
-  LlamaKit:
-    path: LlamaKit
-
 targetTemplates:
   LoomApp:
     type: application
     sources:
       - path: Loom
-    dependencies:
-      - package: LlamaKit
-        product: LlamaKit
     settings:
       base:
         PRODUCT_NAME: Loom
