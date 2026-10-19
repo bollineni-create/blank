@@ -15,14 +15,15 @@ ROOT="$PWD"
 
 LOOM_TEAM="${LOOM_TEAM-66BLLM3ERE}"
 if [[ -n "$LOOM_TEAM" ]]; then
-  SIGNING=(-allowProvisioningUpdates DEVELOPMENT_TEAM="$LOOM_TEAM")
+  # Device registration lets Xcode add this Mac to the team, which a Mac development profile needs.
+  SIGNING=(-allowProvisioningUpdates -allowProvisioningDeviceRegistration DEVELOPMENT_TEAM="$LOOM_TEAM")
 else
   SIGNING=(CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM=
            CODE_SIGN_ENTITLEMENTS=Loom/Resources/Loom-macOS.entitlements)
 fi
 
 xcodebuild -project Loom.xcodeproj -scheme Loom-macOS -configuration Release \
-  -derivedDataPath "$ROOT/build" -destination 'generic/platform=macOS' \
+  -derivedDataPath "$ROOT/build" -destination 'platform=macOS' \
   "${SIGNING[@]}" -quiet build
 
 APP="$ROOT/build/Build/Products/Release/Loom.app"
