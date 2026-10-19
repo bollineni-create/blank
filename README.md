@@ -30,7 +30,7 @@ xcodegen generate          # downloads llama.cpp (about 65 MB, once), then creat
 open Loom.xcodeproj
 ```
 
-1. In Xcode, select the **Loom-iOS** or **Loom-macOS** target, go to **Signing & Capabilities**, and choose your Team. iCloud sync needs a paid Apple Developer Program team (see below).
+1. In Xcode, select the **Loom-iOS** or **Loom-macOS** target, go to **Signing & Capabilities**, and choose your Team. A free Apple ID works. iCloud sync is off by default because it needs a paid Apple Developer Program team (see below).
 2. Press ⌘R.
 3. On first launch, Loom offers to download the recommended model. Use Wi-Fi.
 
@@ -44,8 +44,8 @@ The library syncs through your private iCloud database (container `iCloud.com.pe
 
 For sync to work:
 
-1. **A paid Apple Developer Program team.** A free Apple ID can't sign apps with iCloud.
-2. **The same team on both targets.** In Xcode, open **Signing & Capabilities** for **Loom-iOS** and **Loom-macOS**, choose the same team, and check that the **iCloud** capability lists the `iCloud.com.personal.loom` container on both. Container names are unique across all developers. If Xcode says the name is taken, pick another one (for example `iCloud.com.yourname.loom`), and change it in both entitlements files and in `SyncMonitor.containerID`.
+1. **A paid Apple Developer Program team.** A free Apple ID can't sign apps with iCloud, so by default both targets are signed without it and each device keeps its own library. To turn sync on, change `CODE_SIGN_ENTITLEMENTS` in `project.yml` to `Loom/Resources/Loom-iOS-iCloud.entitlements` and `Loom/Resources/Loom-macOS-iCloud.entitlements`, then run `xcodegen generate` again.
+2. **The same team on both targets.** In Xcode, open **Signing & Capabilities** for **Loom-iOS** and **Loom-macOS**, choose the same team, and check that the **iCloud** capability lists the `iCloud.com.personal.loom` container on both. Container names are unique across all developers. If Xcode says the name is taken, pick another one (for example `iCloud.com.yourname.loom`), and change it in both `-iCloud` entitlements files and in `SyncMonitor.containerID`.
 3. **The same Apple Account** signed in to iCloud on the Mac and the iPhone.
 4. **The same iCloud environment.** Builds you run from Xcode use the *development* environment. TestFlight and App Store builds use *production*. The two never see each other's data, so run both from Xcode (or ship both through TestFlight after deploying the schema in the CloudKit Console).
 
