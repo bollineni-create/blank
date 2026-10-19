@@ -26,6 +26,9 @@ final class Librarian {
     private var organizing: (id: UUID, task: Task<Void, Never>)?
     /// Cancelled items, so late stage updates don't bring them back into the list.
     private var cancelledIDs: Set<UUID> = []
+    private var backfillRunning = false
+    /// Asked to copy files again while a copy was running.
+    private var backfillAgain = false
 
     // MARK: Upload activity (what the uploads tray shows)
 
@@ -235,7 +238,7 @@ final class Librarian {
             }
             item.attachmentName = name
             let stored = AttachmentStore.url(for: name)
-            item.attachmentData = try? Data(contentsOf: stored, options: .mappedIfSafe)
+            // The copy for iCloud is made off the main thread once the AI is done (see backfillAttachmentsForSync).
             switch kind {
             case .pdf:
                 item.thumbnail = ContentExtractor.pdfThumbnail(stored)
@@ -353,19 +356,38 @@ final class Librarian {
     /// Items saved before iCloud sync kept their files only on this device. Copies each file into
     /// the library, one at a time, so iCloud can carry it to your other devices.
     func backfillAttachmentsForSync() {
-        guard let context else { return }
-        let ids = ((try? context.fetch(FetchDescriptor<Item>(predicate: #Predicate { $0.attachmentName != nil && $0.attachmentData == nil }))) ?? [])
-            .map(\.persistentModelID)
-        guard !ids.isEmpty else { return }
+        guard let container = context?.container else { return }
+        guard !backfillRunning else { backfillAgain = true; return }
+        backfillRunning = true
         Task {
-            for id in ids {
-                guard let item = context.model(for: id) as? Item, let name = item.attachmentName,
-                      item.attachmentData == nil else { continue }
-                let url = AttachmentStore.url(for: name)
-                guard FileManager.default.fileExists(atPath: url.path) else { continue }
-                item.attachmentData = try? Data(contentsOf: url, options: .mappedIfSafe)
+            await Task.detached(priority: .utility) { Self.copyAttachmentsIntoLibrary(container) }.value
+            backfillRunning = false
+            if backfillAgain {
+                backfillAgain = false
+                backfillAttachmentsForSync()
+            }
+        }
+    }
+
+    /// Runs off the main thread with its own context: reading and saving a large video on the main
+    /// thread froze the screen. Skips items the AI may still be changing; they're picked up once it's done.
+    nonisolated private static func copyAttachmentsIntoLibrary(_ container: ModelContainer) {
+        let processing = AIStatus.processing.rawValue
+        let pending = AIStatus.pending.rawValue
+        let ids = ((try? ModelContext(container).fetch(FetchDescriptor<Item>(predicate: #Predicate {
+            $0.attachmentName != nil && $0.attachmentData == nil && $0.aiStatusRaw != processing && $0.aiStatusRaw != pending
+        }))) ?? []).map(\.id)
+        for id in ids {
+            autoreleasepool {
+                // A fresh context per file, so each copy is let go once it's saved. Fetched by ID, not
+                // looked up, so an item deleted meanwhile is simply skipped.
+                let context = ModelContext(container)
+                guard let item = try? context.fetch(FetchDescriptor<Item>(predicate: #Predicate { $0.id == id })).first,
+                      let name = item.attachmentName,
+                      item.attachmentData == nil,
+                      let data = try? Data(contentsOf: AttachmentStore.url(for: name), options: .mappedIfSafe) else { return }
+                item.attachmentData = data
                 try? context.save()
-                await Task.yield()
             }
         }
     }
@@ -404,6 +426,8 @@ final class Librarian {
         }
         try? context?.save()
         runQueue()
+        // With the AI off, nothing else will make the copy for iCloud.
+        if !autoOrganize { backfillAttachmentsForSync() }
     }
 
     /// Organizes every item still waiting for the AI. Safe to call often.
@@ -411,7 +435,11 @@ final class Librarian {
         guard !queueRunning, autoOrganize, llm.isReady, let context else { return }
         queueRunning = true
         Task {
-            defer { queueRunning = false; processingCount = 0 }
+            defer {
+                queueRunning = false
+                processingCount = 0
+                backfillAttachmentsForSync()
+            }
             while llm.isReady {
                 let pending = AIStatus.pending.rawValue
                 var descriptor = FetchDescriptor<Item>(
