@@ -43,6 +43,14 @@ To get Loom into your Applications folder, run one command. After that you can o
 
 It needs Xcode but no Apple ID, because the build is ad-hoc signed. Run it again after you pull changes to update the installed app. On another Mac, right-click the app and choose **Open** the first time.
 
+An ad-hoc signed app can't use iCloud, so it keeps its own library. To sync with your iPhone, pass your paid Apple Developer Program team ID (Xcode → Settings → Accounts, or developer.apple.com → Membership). The script then signs with that team and the iCloud entitlements:
+
+```bash
+LOOM_TEAM=ABCDE12345 ./scripts/install-mac.sh
+```
+
+The iPhone app must use the same team and the iOS iCloud entitlements (see below). Both builds use iCloud's development environment, so they see the same data.
+
 ## Sharing one library between Mac and iPhone (iCloud)
 
 The library syncs through your private iCloud database (container `iCloud.com.personal.loom`). If it isn't set up, each device silently keeps its own library. **Settings → iCloud sync** on each device shows whether sync is on, and if not, why.
