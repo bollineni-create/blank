@@ -353,6 +353,17 @@ final class Librarian {
         runQueue()
     }
 
+    /// Marks every item and space as changed so iCloud uploads them again. Items saved while sync was off
+    /// or failing (no iCloud, or a container iCloud refused) were never sent, and iCloud only sends changes.
+    func resendLibraryToICloud() {
+        guard let context else { return }
+        for item in (try? context.fetch(FetchDescriptor<Item>())) ?? [] { item.touch() }
+        // Spaces have no edit date, so nudge the creation date by a millisecond; nothing shows that precision.
+        for space in (try? context.fetch(FetchDescriptor<Space>())) ?? [] { space.createdAt += 0.001 }
+        try? context.save()
+        backfillAttachmentsForSync()
+    }
+
     /// Items saved before iCloud sync kept their files only on this device. Copies each file into
     /// the library, one at a time, so iCloud can carry it to your other devices.
     func backfillAttachmentsForSync() {

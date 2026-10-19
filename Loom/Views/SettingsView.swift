@@ -65,10 +65,12 @@ struct SettingsView: View {
                 if let date = sync.lastExport {
                     LabeledContent("Last sent", value: date.formatted(.relative(presentation: .named)))
                 }
+                Button("Send everything on this device to iCloud") { librarian.resendLibraryToICloud() }
+                    .disabled(sync.hasCloudKit != true)
             } header: {
                 Text("iCloud sync")
             } footer: {
-                Text("Your Mac and iPhone share one library when both are signed in to the same Apple Account and both copies of Loom are signed with the same team and run from Xcode, so they use the same iCloud environment.")
+                Text("Your Mac and iPhone share one library when both are signed in to the same Apple Account and both copies of Loom are signed with the same team and run from Xcode, so they use the same iCloud environment. If items you saved before sync was on are missing from your other devices, tap Send everything on the device that has them.")
             }
 
             Section("Search") {
