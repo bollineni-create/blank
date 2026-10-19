@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Signs with a free Apple ID. For iCloud sync (paid team), point CODE_SIGN_ENTITLEMENTS at the -iCloud copy; see README. -->
+	<!-- Lets the app use more RAM so 1-4B parameter models fit on iPhone. -->
+	<key>com.apple.developer.kernel.increased-memory-limit</key>
+	<true/>
+</dict>
+</plist>
