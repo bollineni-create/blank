@@ -45,12 +45,12 @@ It needs Xcode. It signs with the project's team (`66BLLM3ERE`) and turns on iCl
 
 ## Sharing one library between Mac and iPhone (iCloud)
 
-The library syncs through your private iCloud database (container `iCloud.com.personal.loom`). If it isn't set up, each device silently keeps its own library. **Settings → iCloud sync** on each device shows whether sync is on, and if not, why.
+The library syncs through your private iCloud database (container `iCloud.com.bollineni.loom`). If it isn't set up, each device silently keeps its own library. **Settings → iCloud sync** on each device shows whether sync is on, and if not, why.
 
 For sync to work:
 
 1. **A paid Apple Developer Program team.** A free Apple ID can't sign apps with iCloud. The project is set up for team `66BLLM3ERE` with the `-iCloud` entitlements on both targets; with a free team, switch `CODE_SIGN_ENTITLEMENTS` in `project.yml` back to the plain files and run `xcodegen generate`, and each device keeps its own library.
-2. **The same team on both targets.** In Xcode, open **Signing & Capabilities** for **Loom-iOS** and **Loom-macOS**, choose the same team, and check that the **iCloud** capability lists the `iCloud.com.personal.loom` container on both. Container names are unique across all developers. If Xcode says the name is taken, pick another one (for example `iCloud.com.yourname.loom`), and change it in both `-iCloud` entitlements files and in `SyncMonitor.containerID`.
+2. **The same team on both targets.** In Xcode, open **Signing & Capabilities** for **Loom-iOS** and **Loom-macOS**, choose the same team, and check that the **iCloud** capability lists the `iCloud.com.bollineni.loom` container on both. Container names are unique across all developers. If Xcode says the name is taken, pick another one (for example `iCloud.com.yourname.loom`), and change it in both `-iCloud` entitlements files and in `SyncMonitor.containerID`.
 3. **The same Apple Account** signed in to iCloud on the Mac and the iPhone.
 4. **The same iCloud environment.** Builds you run from Xcode use the *development* environment. TestFlight and App Store builds use *production*. The two never see each other's data, so run both from Xcode (or ship both through TestFlight after deploying the schema in the CloudKit Console).
 

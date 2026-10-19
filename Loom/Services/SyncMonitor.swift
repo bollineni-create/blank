@@ -9,7 +9,7 @@ import Observation
 @MainActor
 @Observable
 final class SyncMonitor {
-    static let containerID = "iCloud.com.personal.loom"
+    static let containerID = "iCloud.com.bollineni.loom"
 
     enum Tone { case ok, busy, problem }
 
