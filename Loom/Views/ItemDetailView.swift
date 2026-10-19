@@ -97,7 +97,7 @@ struct ItemDetailView: View {
                     FlowLayout(spacing: 6) {
                         ForEach(item.tags, id: \.self) { tag in
                             HStack(spacing: 4) {
-                                Text("#\(tag)")
+                                Text("#\(tag)").font(.loomLabel)
                                 Button { item.tags.removeAll { $0 == tag }; librarian.itemEdited(item) } label: {
                                     Image(systemName: "xmark.circle.fill")
                                 }
@@ -106,7 +106,7 @@ struct ItemDetailView: View {
                             .font(.callout)
                             .foregroundStyle(Theme.label)
                             .padding(.horizontal, Theme.Space.s8).padding(.vertical, Theme.Space.s4)
-                            .background(Theme.accentTint, in: Capsule())
+                            .background(Theme.accentTint, in: Theme.pillShape)
                         }
                     }
                 }

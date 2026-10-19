@@ -442,21 +442,28 @@ struct KnowledgeWebView: View {
         let kinds = kindFilter.isEmpty ? nil : kindNodes(kindFilter, byID: byID)
         let showFileNames = alwaysShowNames || scale > 1.1
         let busy = librarian.busyItemIDs
+        let theme = Theme.current
+        let style = theme.style
 
         return Canvas { ctx, size in
-            drawGrid(&ctx, size: size)
+            drawBackdrop(&ctx, size: size, style: style)
             ctx.translateBy(x: size.width / 2 + pan.width, y: size.height / 2 + pan.height)
             ctx.scaleBy(x: scale, y: scale)
             let nodes = sim.nodes
             let compact = scale < 0.42
+            drawWorldTexture(&ctx, size: size, style: style)
 
-            // The theme's glow at the map center.
-            let glowRadius: CGFloat = 520
-            ctx.fill(Path(ellipseIn: CGRect(x: -glowRadius, y: -glowRadius, width: glowRadius * 2, height: glowRadius * 2)),
-                     with: .radialGradient(Gradient(stops: [.init(color: Theme.glowInner, location: 0),
-                                                            .init(color: Theme.glowOuter, location: 0.45),
-                                                            .init(color: .clear, location: 1)]),
-                                           center: .zero, startRadius: 0, endRadius: glowRadius))
+            // The theme's glow at the map center. Lamplight's lamp pool follows the selected topic instead.
+            if style.centerGlow || style.canvas == .lamp {
+                let lamp = style.canvas == .lamp
+                let center = lamp ? (selectedConcept.flatMap { sim.position(of: $0) } ?? .zero) : .zero
+                let glowRadius: CGFloat = lamp ? 340 : 520
+                ctx.fill(Path(ellipseIn: CGRect(x: center.x - glowRadius, y: center.y - glowRadius, width: glowRadius * 2, height: glowRadius * 2)),
+                         with: .radialGradient(Gradient(stops: [.init(color: Theme.glowInner, location: 0),
+                                                                .init(color: Theme.glowOuter, location: 0.45),
+                                                                .init(color: .clear, location: 1)]),
+                                               center: center, startRadius: 0, endRadius: glowRadius))
+            }
 
             func dimmed(_ i: Int) -> Bool {
                 if let focus, !focus.contains(i) { return true }
@@ -465,31 +472,46 @@ struct KnowledgeWebView: View {
                 return false
             }
 
-            // Edges: thin curves in the branch color, no glow. Related files get a faint dashed link.
+            // Edges in the language's line: curves, stems, straight ink, right angles, thick strokes, dashes or mist.
+            // Related files get a faint dotted link.
+            let unit = 1 / max(scale, 0.6)
             for link in sim.links {
                 let a = nodes[link.a], b = nodes[link.b]
-                let from = CGPoint(x: a.x, y: a.y), to = CGPoint(x: b.x, y: b.y)
-                var path = Path()
-                path.move(to: from)
-                let mid = CGPoint(x: (from.x + to.x) / 2, y: (from.y + to.y) / 2)
-                let bend: CGFloat = 0.12
-                path.addQuadCurve(to: to, control: CGPoint(x: mid.x - (to.y - from.y) * bend, y: mid.y + (to.x - from.x) * bend))
+                let path = edgePath(from: CGPoint(x: a.x, y: a.y), to: CGPoint(x: b.x, y: b.y), style: style.edge)
                 let lit = focus.map { $0.contains(link.a) && $0.contains(link.b) } ?? false
                 let faded = dimmed(link.a) || dimmed(link.b)
-                let width = (lit ? 2 : 1.5) / max(scale, 0.6)
                 if link.isSimilarity {
                     ctx.stroke(path, with: .color(Theme.labelTertiary.opacity(faded ? 0.05 : (lit ? 0.7 : 0.3))),
-                               style: StrokeStyle(lineWidth: width, lineCap: .round, dash: [4 / max(scale, 0.6), 6 / max(scale, 0.6)]))
-                } else {
-                    ctx.stroke(path, with: .color(color(of: a).opacity(faded ? 0.05 : (lit ? 0.8 : 0.45))),
-                               style: StrokeStyle(lineWidth: width, lineCap: .round))
+                               style: StrokeStyle(lineWidth: (lit ? 2 : 1.5) * unit, lineCap: .round, dash: [4 * unit, 6 * unit]))
+                    continue
                 }
+                var tone = style.inkEdges ? Theme.label : color(of: a)
+                if lit && style.inkEdges { tone = style.node == .star ? Theme.accent : Theme.signal }
+                var opacity = faded ? 0.05 : (lit ? 0.8 : 0.45)
+                if style.inkEdges && !lit && !faded { opacity = style.edgeWidth >= 2 ? 0.45 : 0.3 }
+                if style.edge == .soft && !lit { opacity *= 0.6 }
+                let width = style.edgeWidth * (lit ? 1.35 : 1) * unit
+                if lit && style.node == .star {
+                    ctx.stroke(path, with: .color(Theme.accent.opacity(0.18)), style: StrokeStyle(lineWidth: width * 5, lineCap: .round))
+                }
+                ctx.stroke(path, with: .color(tone.opacity(opacity)),
+                           style: StrokeStyle(lineWidth: width, lineCap: style.edge == .orthogonal ? .square : .round, lineJoin: .round,
+                                              dash: style.edge == .dashed ? [6 * unit, 4 * unit] : []))
             }
 
-            // Files: white discs with a hairline, the kind symbol and a ring in the branch color.
-            // Zoomed far out they become plain branch-colored dots.
+            // Files: surface discs (squares and tags in the print languages) with a ring in the branch color
+            // and the kind symbol. Zoomed far out they become plain branch-colored dots.
+            func fileShape(_ rect: CGRect) -> Path {
+                switch style.node {
+                case .drafted, .block: Path(rect)
+                case .specimen, .misprint, .underline: Path(roundedRect: rect, cornerRadius: rect.width * 0.2)
+                default: Path(ellipseIn: rect)
+                }
+            }
             ctx.drawLayer { layer in
-                if !compact { layer.addFilter(.shadow(color: Color(hex: Theme.current.ink.light, opacity: 0.12), radius: 3, x: 0, y: 1)) }
+                if !compact, style.depth != .flat, !style.depth.isHard {
+                    layer.addFilter(.shadow(color: Color(hex: theme.ink.light, opacity: 0.12), radius: 3, x: 0, y: 1))
+                }
                 for (i, node) in nodes.enumerated() {
                     guard case .item(let id) = node.kind else { continue }
                     let c = color(of: node)
@@ -498,124 +520,474 @@ struct KnowledgeWebView: View {
                     var r = node.radius + (compact ? 0 : 3)
                     if isHovered || selected { r *= 1.2 }
                     let rect = CGRect(x: node.x - r, y: node.y - r, width: r * 2, height: r * 2)
+                    let showsImage = sim.images[id] != nil && (scale > 0.8 || isHovered || selected)
+                    let drawn = showsImage ? rect.insetBy(dx: -r * 0.4, dy: -r * 0.4) : rect
                     layer.opacity = dimmed(i) ? Theme.dimmedOpacity : 1
 
                     if compact {
-                        layer.fill(Path(ellipseIn: rect), with: .color(c))
-                    } else if let image = sim.images[id], scale > 0.8 || isHovered || selected {
-                        let big = rect.insetBy(dx: -r * 0.4, dy: -r * 0.4)
+                        layer.fill(fileShape(rect), with: .color(c))
+                        continue
+                    }
+                    if case .hard(let dx, let dy, let accent) = style.depth {
+                        layer.fill(fileShape(drawn.offsetBy(dx: dx / scale, dy: dy / scale)), with: .color(accent ? Theme.accent : Theme.label))
+                    }
+                    if showsImage, let image = sim.images[id] {
                         layer.drawLayer { inner in
-                            inner.clip(to: Path(ellipseIn: big))
-                            inner.draw(image, in: big)
+                            inner.clip(to: fileShape(drawn))
+                            inner.draw(image, in: drawn)
                         }
-                        layer.stroke(Path(ellipseIn: big), with: .color(c), lineWidth: 1.5 / scale)
+                        layer.stroke(fileShape(drawn), with: .color(c), lineWidth: max(1.5, style.outline) / scale)
                     } else {
-                        layer.fill(Path(ellipseIn: rect), with: .color(Theme.surface))
-                        layer.stroke(Path(ellipseIn: rect.insetBy(dx: 0.75 / scale, dy: 0.75 / scale)), with: .color(c), lineWidth: 1.5 / scale)
+                        layer.fill(fileShape(rect), with: .color(Theme.surface))
+                        layer.stroke(fileShape(rect.insetBy(dx: 0.75 / scale, dy: 0.75 / scale)), with: .color(c), lineWidth: max(1.5, style.outline) / scale)
                         if r * scale >= 9, let item = byID[id] {
                             layer.draw(Text(Image(systemName: item.kind.symbol))
-                                        .font(.system(size: r * 0.95, weight: .medium))
+                                        .font(.system(size: r * 0.95, weight: style.symbolWeight))
                                         .foregroundStyle(Theme.labelSecondary),
                                        at: CGPoint(x: node.x, y: node.y))
                         }
                     }
                     if selected {
                         // Selection: a 2px ring in the branch color, offset 2px.
-                        let outer = (sim.images[id] != nil && (scale > 0.8 || isHovered || selected)) ? r * 1.4 : r
-                        let gap = 2 / scale
-                        layer.stroke(Path(ellipseIn: CGRect(x: node.x - outer - gap - 1 / scale, y: node.y - outer - gap - 1 / scale,
-                                                            width: (outer + gap + 1 / scale) * 2, height: (outer + gap + 1 / scale) * 2)),
-                                     with: .color(c), lineWidth: 2 / scale)
+                        let ring = drawn.insetBy(dx: -2 / scale - 1 / scale, dy: -2 / scale - 1 / scale)
+                        layer.stroke(fileShape(ring), with: .color(c), lineWidth: 2 / scale)
                     }
                     if busy.contains(id) {
                         // Still being copied, read or summarized.
-                        layer.stroke(Path(ellipseIn: rect.insetBy(dx: -r * 0.9, dy: -r * 0.9)), with: .color(Theme.accentInk),
+                        layer.stroke(fileShape(rect.insetBy(dx: -r * 0.9, dy: -r * 0.9)), with: .color(Theme.accentInk),
                                      style: StrokeStyle(lineWidth: 1.5 / scale, dash: [4 / scale, 3 / scale]))
                     }
                 }
             }
 
-            // File names under the discs.
+            // File names under the files, in the language's reading face.
+            let nameFace = theme.body.weighted(.medium)
             for (i, node) in nodes.enumerated() {
                 guard case .item(let id) = node.kind else { continue }
                 let wanted = showFileNames || hovered == i || selection == id || (focus?.contains(i) ?? false) || (matches?.contains(i) ?? false)
                 guard wanted, !dimmed(i), !compact, let item = byID[id] else { continue }
                 let title = item.displayTitle
                 let short = title.count > 32 ? String(title.prefix(30)) + "…" : title
-                ctx.draw(Text(short).font(.system(size: max(9, 11 / scale.squareRoot()), weight: .medium)).foregroundStyle(Theme.labelSecondary),
+                ctx.draw(Text(short).font(nameFace.font(size: max(9, 11 / scale.squareRoot()), relativeTo: .caption)).foregroundStyle(Theme.labelSecondary),
                          at: CGPoint(x: node.x, y: node.y + node.radius + 6), anchor: .top)
             }
 
-            // Concepts: white surface pills with a hairline, a branch-color dot, the name and a count.
+            // Concepts, drawn as the language's topic: pills, pebbles, specimen labels, stars, blocks, words…
             let fontSize = min(24, max(13, 15 / scale.squareRoot()))
-            var pills: [(index: Int, rect: CGRect, name: GraphicsContext.ResolvedText, count: GraphicsContext.ResolvedText,
-                         nameSize: CGSize, countSize: CGSize)] = []
+            var topics: [MapTopic] = []
             for (i, node) in nodes.enumerated() {
                 guard case .concept(let name, let isSpace) = node.kind else { continue }
-                let label = ctx.resolve(Text(isSpace ? name : name.capitalized)
-                    .font(.system(size: fontSize, weight: .semibold)).foregroundStyle(Theme.label))
-                let count = ctx.resolve(Text("\(node.count)")
-                    .font(.system(size: fontSize * 0.72, weight: .bold)).foregroundStyle(Theme.labelSecondary))
-                let nameSize = label.measure(in: CGSize(width: 1000, height: 200))
-                let countSize = count.measure(in: CGSize(width: 200, height: 200))
-                let width = fontSize * 0.9 + fontSize * 0.5 + fontSize * 0.45 + nameSize.width + fontSize * 0.5 + countSize.width + fontSize * 0.8 + fontSize * 0.5
-                let height = nameSize.height + fontSize * 0.8
-                let rect = CGRect(x: node.x - width / 2, y: node.y - height / 2, width: width, height: height)
-                pills.append((i, rect, label, count, nameSize, countSize))
-                sim.pillHalfSizes[i] = CGSize(width: width / 2, height: height / 2)
+                let topic = layoutTopic(index: i, node: node, name: isSpace ? name : name.capitalized, fontSize: fontSize,
+                                        selected: selectedConcept == node.id, theme: theme, ctx: ctx)
+                topics.append(topic)
+                sim.pillHalfSizes[i] = CGSize(width: topic.rect.width / 2, height: topic.rect.height / 2)
             }
+            // Fills first, in one layer so the soft languages share one shadow pass.
             ctx.drawLayer { layer in
-                layer.addFilter(.shadow(color: Color(hex: Theme.current.ink.light, opacity: 0.08), radius: 6, x: 0, y: 3))
-                for pill in pills {
-                    layer.opacity = dimmed(pill.index) ? Theme.dimmedOpacity : 1
-                    layer.fill(Path(roundedRect: pill.rect, cornerRadius: pill.rect.height / 2), with: .color(Theme.surface))
+                switch style.depth {
+                case .soft: layer.addFilter(.shadow(color: Color(hex: theme.ink.light, opacity: 0.08), radius: 6, x: 0, y: 3))
+                case .low, .frost: layer.addFilter(.shadow(color: Color(hex: theme.ink.light, opacity: 0.08), radius: 5, x: 0, y: 4))
+                case .flat, .hard: break
+                }
+                for topic in topics {
+                    layer.opacity = dimmed(topic.index) ? Theme.dimmedOpacity : 1
+                    drawTopicFill(topic, in: &layer, style: style, color: color(of: nodes[topic.index]))
                 }
             }
-            for pill in pills {
-                let node = nodes[pill.index]
-                let c = color(of: node)
-                let rect = pill.rect
-                ctx.opacity = dimmed(pill.index) ? Theme.dimmedOpacity : 1
-                let capsule = Path(roundedRect: rect, cornerRadius: rect.height / 2)
-                ctx.stroke(capsule, with: .color(Theme.hairline), lineWidth: 1 / scale)
-                if selectedConcept == node.id || hovered == pill.index {
-                    let gap = 2 / scale
-                    let ring = rect.insetBy(dx: -gap - 1 / scale, dy: -gap - 1 / scale)
-                    ctx.stroke(Path(roundedRect: ring, cornerRadius: ring.height / 2),
-                               with: .color(selectedConcept == node.id ? c : Theme.hairline), lineWidth: 2 / scale)
-                }
-                var x = rect.minX + fontSize * 0.9
-                let dot = fontSize * 0.5
-                ctx.fill(Path(ellipseIn: CGRect(x: x, y: rect.midY - dot / 2, width: dot, height: dot)), with: .color(c))
-                x += dot + fontSize * 0.45
-                ctx.draw(pill.name, at: CGPoint(x: x, y: rect.midY), anchor: .leading)
-                x += pill.nameSize.width + fontSize * 0.5
-                let countRect = CGRect(x: x, y: rect.midY - (pill.countSize.height + fontSize * 0.3) / 2,
-                                       width: pill.countSize.width + fontSize * 0.8, height: pill.countSize.height + fontSize * 0.3)
-                ctx.fill(Path(roundedRect: countRect, cornerRadius: countRect.height / 2), with: .color(Theme.surfaceSunken))
-                ctx.draw(pill.count, at: CGPoint(x: countRect.midX, y: countRect.midY))
+            for topic in topics {
+                ctx.opacity = dimmed(topic.index) ? Theme.dimmedOpacity : 1
+                drawTopicDetail(topic, in: &ctx, style: style, color: color(of: nodes[topic.index]), hovered: hovered == topic.index)
             }
             ctx.opacity = 1
         }
     }
 
-    /// The map's dot grid: 30pt pitch at 1× zoom (never tighter than 14pt on screen), moving with the map.
-    private func drawGrid(_ ctx: inout GraphicsContext, size: CGSize) {
-        var pitch = Theme.Space.s30 * scale
-        while pitch < 14 { pitch *= 2 }
-        let originX = (size.width / 2 + pan.width).truncatingRemainder(dividingBy: pitch)
-        let originY = (size.height / 2 + pan.height).truncatingRemainder(dividingBy: pitch)
-        var dots = Path()
-        var y = originY < 0 ? originY + pitch : originY
-        while y < size.height {
-            var x = originX < 0 ? originX + pitch : originX
-            while x < size.width {
-                dots.addEllipse(in: CGRect(x: x - 1, y: y - 1, width: 2, height: 2))
-                x += pitch
-            }
-            y += pitch
+    /// An edge between two map points in the language's line.
+    private func edgePath(from: CGPoint, to: CGPoint, style: ThemeStyle.Edge) -> Path {
+        var path = Path()
+        path.move(to: from)
+        let mid = CGPoint(x: (from.x + to.x) / 2, y: (from.y + to.y) / 2)
+        switch style {
+        case .straight:
+            path.addLine(to: to)
+        case .orthogonal:
+            // Right angles, like a drafted connector: across, down, across.
+            path.addLine(to: CGPoint(x: mid.x, y: from.y))
+            path.addLine(to: CGPoint(x: mid.x, y: to.y))
+            path.addLine(to: to)
+        case .stem:
+            let bend: CGFloat = 0.24
+            path.addQuadCurve(to: to, control: CGPoint(x: mid.x - (to.y - from.y) * bend, y: mid.y + (to.x - from.x) * bend))
+        case .curve, .thick, .dashed, .soft:
+            let bend: CGFloat = 0.12
+            path.addQuadCurve(to: to, control: CGPoint(x: mid.x - (to.y - from.y) * bend, y: mid.y + (to.x - from.x) * bend))
         }
-        ctx.fill(dots, with: .color(Theme.mapDot))
+        return path
+    }
+
+    /// Measures a topic in the language's face and shape, centered on its node.
+    private func layoutTopic(index: Int, node: WebSimulation.Node, name: String, fontSize fs: CGFloat, selected: Bool,
+                             theme: LoomTheme, ctx: GraphicsContext) -> MapTopic {
+        let style = theme.style
+        var face = theme.body.weighted(.semibold)
+        var nameSize = fs
+        var tracking: CGFloat = 0
+        var text = name
+        switch style.node {
+        case .underline, .lampWord:
+            face = theme.display; nameSize = fs * 1.15; tracking = theme.display.tracking
+        case .specimen:
+            face = theme.display; nameSize = fs * 1.25; tracking = theme.display.tracking
+        case .star:
+            face = theme.label; nameSize = fs * 0.8; tracking = theme.label.tracking; text = name.uppercased()
+        case .block, .chunky:
+            face = theme.body.weighted(.bold)
+        case .misprint:
+            face = theme.label
+        case .drafted:
+            face = theme.body.weighted(.medium)
+        case .pill, .pebble, .frosted:
+            break
+        }
+
+        var ink = Theme.label
+        var countInk = Theme.labelSecondary
+        switch style.node {
+        case .pebble where selected: ink = Theme.onAccent
+        case .block: ink = selected ? Theme.onAccent : Theme.background; countInk = ink.opacity(0.75)
+        case .chunky: ink = selected ? Theme.onAccent : Theme.onChip; countInk = Theme.onChip
+        case .misprint where selected: ink = Theme.onChip; countInk = Theme.onChip
+        case .lampWord where selected: ink = Theme.accentInk
+        default: break
+        }
+
+        let label = ctx.resolve(Text(text).font(face.font(size: nameSize, relativeTo: .body)).tracking(tracking).foregroundStyle(ink))
+        let count = ctx.resolve(Text("\(node.count)").font(theme.label.font(size: fs * 0.72, relativeTo: .caption)).foregroundStyle(countInk))
+        let ns = label.measure(in: CGSize(width: 1000, height: 200))
+        let cs = count.measure(in: CGSize(width: 200, height: 200))
+
+        let width: CGFloat, height: CGFloat
+        switch style.node {
+        case .pill, .pebble, .frosted:
+            width = fs * 0.9 + fs * 0.5 + fs * 0.45 + ns.width + fs * 0.5 + cs.width + fs * 0.8 + fs * 0.5
+            height = ns.height + fs * 0.8
+        case .chunky:
+            width = fs * 0.9 + ns.width + fs * 0.5 + cs.width + fs * 0.8 + fs * 0.5
+            height = ns.height + fs * 0.9
+        case .specimen, .block, .misprint:
+            width = fs * 0.7 + ns.width + fs * 0.5 + cs.width + fs * 0.7
+            height = ns.height + fs * 0.7
+        case .drafted:
+            width = fs * 0.7 + fs * 0.45 + fs * 0.45 + ns.width + fs * 0.5 + cs.width + fs * 0.7
+            height = ns.height + fs * 0.7
+        case .underline:
+            width = ns.width + fs * 0.15 + cs.width
+            height = ns.height + fs * 0.4
+        case .lampWord:
+            width = fs * 0.4 + fs * 0.4 + ns.width + fs * 0.35 + cs.width
+            height = ns.height + fs * 0.3
+        case .star:
+            let star = starRadius(count: node.count, fontSize: fs)
+            width = star * 2 + fs * 0.5 + ns.width + fs * 0.4 + cs.width
+            height = max(star * 2, ns.height)
+        }
+        let rect = CGRect(x: node.x - width / 2, y: node.y - height / 2, width: width, height: height)
+        return MapTopic(index: index, rect: rect, name: label, count: count, nameSize: ns, countSize: cs, selected: selected,
+                        fontSize: fs, total: node.count, corner: theme.corner ?? 0, colorIndex: node.colorIndex)
+    }
+
+    private func starRadius(count: Int, fontSize fs: CGFloat) -> CGFloat {
+        fs * 0.22 + CGFloat(count).squareRoot() * fs * 0.1
+    }
+
+    /// The topic's body: what sits under its text, including hard offset shadows.
+    private func drawTopicFill(_ t: MapTopic, in ctx: inout GraphicsContext, style: ThemeStyle, color c: Color) {
+        let rect = t.rect
+        let capsule = Path(roundedRect: rect, cornerRadius: rect.height / 2)
+        let box = Path(roundedRect: rect, cornerRadius: min(t.corner, rect.height / 2))
+        switch style.node {
+        case .pill:
+            ctx.fill(capsule, with: .color(Theme.surface))
+        case .pebble:
+            ctx.fill(Path(roundedRect: rect.offsetBy(dx: 0, dy: 2 / scale), cornerRadius: rect.height / 2), with: .color(Theme.hairline))
+            ctx.fill(capsule, with: .color(t.selected ? Theme.accent : Theme.surface))
+        case .frosted:
+            ctx.fill(capsule, with: .color(Theme.current.surface.opacity(0.72, 0.66).color))
+        case .chunky:
+            ctx.fill(Path(roundedRect: rect.offsetBy(dx: 0, dy: 3 / scale), cornerRadius: rect.height / 2), with: .color(Theme.label))
+            ctx.fill(capsule, with: .color(t.selected ? Theme.accent : Theme.chip(t.colorIndex)))
+        case .specimen, .drafted:
+            ctx.fill(box, with: .color(Theme.surface))
+        case .block:
+            ctx.fill(box, with: .color(t.selected ? Theme.accent : Theme.label))
+        case .misprint:
+            ctx.fill(box.offsetBy(dx: 3 / scale, dy: 3 / scale), with: .color(Theme.accent))
+            ctx.fill(box, with: .color(t.selected ? Theme.chip(0) : Theme.surface))
+        case .underline, .lampWord, .star:
+            break
+        }
+    }
+
+    /// The topic's outline, marks, name and count.
+    private func drawTopicDetail(_ t: MapTopic, in ctx: inout GraphicsContext, style: ThemeStyle, color c: Color, hovered: Bool) {
+        let rect = t.rect, fs = t.fontSize
+        let hair = 1 / scale
+        let capsule = Path(roundedRect: rect, cornerRadius: rect.height / 2)
+        let box = Path(roundedRect: rect, cornerRadius: min(t.corner, rect.height / 2))
+
+        /// The count in a capsule at `x`, last on the line.
+        func countBubble(at x: CGFloat, fill: Color) {
+            let bubble = CGRect(x: x, y: rect.midY - (t.countSize.height + fs * 0.3) / 2,
+                                width: t.countSize.width + fs * 0.8, height: t.countSize.height + fs * 0.3)
+            ctx.fill(Path(roundedRect: bubble, cornerRadius: bubble.height / 2), with: .color(fill))
+            ctx.draw(t.count, at: CGPoint(x: bubble.midX, y: bubble.midY))
+        }
+
+        switch style.node {
+        case .pill, .pebble, .frosted:
+            if style.node == .pill { ctx.stroke(capsule, with: .color(Theme.hairline), lineWidth: hair) }
+            if style.node == .frosted { ctx.stroke(capsule, with: .color(Theme.hairline), lineWidth: hair) }
+            if style.node != .pebble && (t.selected || hovered) {
+                let gap = 2 / scale
+                let ring = rect.insetBy(dx: -gap - hair, dy: -gap - hair)
+                if style.node == .frosted && t.selected {
+                    // Mist's soft halo outside the selected pill.
+                    let halo = rect.insetBy(dx: -4 / scale, dy: -4 / scale)
+                    ctx.stroke(Path(roundedRect: halo, cornerRadius: halo.height / 2), with: .color(Theme.accent.opacity(0.24)), lineWidth: 6 / scale)
+                } else {
+                    ctx.stroke(Path(roundedRect: ring, cornerRadius: ring.height / 2),
+                               with: .color(t.selected ? c : Theme.hairline), lineWidth: 2 / scale)
+                }
+            }
+            var x = rect.minX + fs * 0.9
+            let dot = fs * 0.5
+            ctx.fill(Path(ellipseIn: CGRect(x: x, y: rect.midY - dot / 2, width: dot, height: dot)),
+                     with: .color(style.node == .pebble && t.selected ? Theme.onAccent : c))
+            x += dot + fs * 0.45
+            ctx.draw(t.name, at: CGPoint(x: x, y: rect.midY), anchor: .leading)
+            x += t.nameSize.width + fs * 0.5
+            countBubble(at: x, fill: style.node == .pebble ? Theme.background : Theme.surfaceSunken)
+
+        case .chunky:
+            ctx.stroke(capsule, with: .color(Theme.label), lineWidth: 2 / scale)
+            var x = rect.minX + fs * 0.9
+            ctx.draw(t.name, at: CGPoint(x: x, y: rect.midY), anchor: .leading)
+            x += t.nameSize.width + fs * 0.5
+            countBubble(at: x, fill: Theme.surface.opacity(0.7))
+
+        case .specimen:
+            ctx.stroke(box, with: .color(t.selected ? Theme.signal : Theme.hairline), lineWidth: (t.selected ? 1.5 : 1) * hair)
+            // The corner tick, in the branch colour.
+            let tick = fs * 0.45
+            var corner = Path()
+            corner.move(to: CGPoint(x: rect.minX, y: rect.minY))
+            corner.addLine(to: CGPoint(x: rect.minX + tick, y: rect.minY))
+            corner.addLine(to: CGPoint(x: rect.minX, y: rect.minY + tick))
+            corner.closeSubpath()
+            ctx.fill(corner, with: .color(c))
+            var x = rect.minX + fs * 0.7
+            ctx.draw(t.name, at: CGPoint(x: x, y: rect.midY), anchor: .leading)
+            x += t.nameSize.width + fs * 0.5
+            ctx.draw(t.count, at: CGPoint(x: x, y: rect.midY), anchor: .leading)
+
+        case .drafted:
+            ctx.stroke(box, with: .color(t.selected ? Theme.signal : Theme.hairline), lineWidth: (t.selected ? 1.5 : 1) * hair)
+            // Dimension ticks past each corner.
+            let tick = fs * 0.35
+            var ticks = Path()
+            let corners: [(CGFloat, CGFloat, CGFloat, CGFloat)] = [(rect.minX, rect.minY, -1, -1), (rect.maxX, rect.minY, 1, -1),
+                                                                    (rect.minX, rect.maxY, -1, 1), (rect.maxX, rect.maxY, 1, 1)]
+            for (cx, cy, sx, sy) in corners {
+                ticks.move(to: CGPoint(x: cx, y: cy)); ticks.addLine(to: CGPoint(x: cx + tick * sx, y: cy))
+                ticks.move(to: CGPoint(x: cx, y: cy)); ticks.addLine(to: CGPoint(x: cx, y: cy + tick * sy))
+            }
+            ctx.stroke(ticks, with: .color(t.selected ? Theme.signal : Theme.labelSecondary), lineWidth: hair)
+            var x = rect.minX + fs * 0.7
+            let swatch = fs * 0.45
+            ctx.fill(Path(CGRect(x: x, y: rect.midY - swatch / 2, width: swatch, height: swatch)), with: .color(c))
+            x += swatch + fs * 0.45
+            ctx.draw(t.name, at: CGPoint(x: x, y: rect.midY), anchor: .leading)
+            x += t.nameSize.width + fs * 0.5
+            ctx.draw(t.count, at: CGPoint(x: x, y: rect.midY), anchor: .leading)
+
+        case .block, .misprint:
+            if style.node == .misprint { ctx.stroke(box, with: .color(Theme.label), lineWidth: 1.5 * hair) }
+            var x = rect.minX + fs * 0.7
+            ctx.draw(t.name, at: CGPoint(x: x, y: rect.midY), anchor: .leading)
+            x += t.nameSize.width + fs * 0.5
+            ctx.draw(t.count, at: CGPoint(x: x, y: rect.midY), anchor: .leading)
+
+        case .underline:
+            // A word with a rule beneath and a superscript count; the selection is ruled in the second pen.
+            let nameRect = CGRect(x: rect.minX, y: rect.midY - t.nameSize.height / 2, width: t.nameSize.width, height: t.nameSize.height)
+            ctx.draw(t.name, at: CGPoint(x: nameRect.minX, y: nameRect.midY), anchor: .leading)
+            ctx.draw(t.count, at: CGPoint(x: nameRect.maxX + fs * 0.15, y: nameRect.minY + fs * 0.1), anchor: .topLeading)
+            var rule = Path()
+            rule.move(to: CGPoint(x: nameRect.minX, y: nameRect.maxY + fs * 0.12))
+            rule.addLine(to: CGPoint(x: nameRect.maxX, y: nameRect.maxY + fs * 0.12))
+            ctx.stroke(rule, with: .color(t.selected ? Theme.signal : (hovered ? Theme.label : c)), lineWidth: (t.selected ? 2 : 1) * hair)
+
+        case .lampWord:
+            var x = rect.minX
+            let dot = fs * 0.4
+            ctx.fill(Path(ellipseIn: CGRect(x: x, y: rect.midY - dot / 2, width: dot, height: dot)), with: .color(t.selected ? Theme.accent : c))
+            x += dot + fs * 0.4
+            ctx.draw(t.name, at: CGPoint(x: x, y: rect.midY), anchor: .leading)
+            x += t.nameSize.width + fs * 0.35
+            ctx.draw(t.count, at: CGPoint(x: x, y: rect.midY), anchor: .leading)
+
+        case .star:
+            let star = starRadius(count: t.total, fontSize: fs)
+            let center = CGPoint(x: rect.minX + star, y: rect.midY)
+            let tone = t.selected ? Theme.accent : Theme.label
+            let glow = star * (t.selected || hovered ? 3.4 : 2.4)
+            ctx.fill(Path(ellipseIn: CGRect(x: center.x - glow, y: center.y - glow, width: glow * 2, height: glow * 2)),
+                     with: .radialGradient(Gradient(colors: [(t.selected ? Theme.accent : c).opacity(0.35), .clear]),
+                                           center: center, startRadius: 0, endRadius: glow))
+            ctx.fill(Path(ellipseIn: CGRect(x: center.x - star, y: center.y - star, width: star * 2, height: star * 2)), with: .color(tone))
+            var x = rect.minX + star * 2 + fs * 0.5
+            ctx.draw(t.name, at: CGPoint(x: x, y: rect.midY), anchor: .leading)
+            x += t.nameSize.width + fs * 0.4
+            ctx.draw(t.count, at: CGPoint(x: x, y: rect.midY), anchor: .leading)
+        }
+    }
+
+    /// Screen-space textures that move with the map: Loom's dots, ruled paper, the drafting grid, Swiss columns.
+    private func drawBackdrop(_ ctx: inout GraphicsContext, size: CGSize, style: ThemeStyle) {
+        let originX = size.width / 2 + pan.width, originY = size.height / 2 + pan.height
+        func first(_ origin: CGFloat, _ pitch: CGFloat) -> CGFloat {
+            let r = origin.truncatingRemainder(dividingBy: pitch)
+            return r < 0 ? r + pitch : r
+        }
+        func lines(pitch: CGFloat, vertical: Bool, horizontal: Bool) -> Path {
+            var path = Path()
+            if vertical {
+                var x = first(originX, pitch)
+                while x < size.width { path.move(to: CGPoint(x: x, y: 0)); path.addLine(to: CGPoint(x: x, y: size.height)); x += pitch }
+            }
+            if horizontal {
+                var y = first(originY, pitch)
+                while y < size.height { path.move(to: CGPoint(x: 0, y: y)); path.addLine(to: CGPoint(x: size.width, y: y)); y += pitch }
+            }
+            return path
+        }
+
+        switch style.canvas {
+        case .dots:
+            // 30pt pitch at 1× zoom, never tighter than 14pt on screen.
+            var pitch = Theme.Space.s30 * scale
+            while pitch < 14 { pitch *= 2 }
+            var dots = Path()
+            var y = first(originY, pitch)
+            while y < size.height {
+                var x = first(originX, pitch)
+                while x < size.width {
+                    dots.addEllipse(in: CGRect(x: x - 1, y: y - 1, width: 2, height: 2))
+                    x += pitch
+                }
+                y += pitch
+            }
+            ctx.fill(dots, with: .color(Theme.mapDot))
+        case .ruled:
+            var pitch = 28 * scale
+            while pitch < 14 { pitch *= 2 }
+            ctx.stroke(lines(pitch: pitch, vertical: false, horizontal: true), with: .color(Theme.hairline.opacity(0.7)), lineWidth: 1)
+        case .grid:
+            // A 16/80 drafting grid; the minor lines drop out when they would crowd.
+            let minor = 16 * scale
+            var major = 80 * scale
+            while major < 40 { major *= 2 }
+            if minor >= 8 {
+                ctx.stroke(lines(pitch: minor, vertical: true, horizontal: true), with: .color(Theme.hairline.opacity(0.35)), lineWidth: 0.5)
+            }
+            ctx.stroke(lines(pitch: major, vertical: true, horizontal: true), with: .color(Theme.hairline.opacity(0.8)), lineWidth: 1)
+        case .columns:
+            // The 4-column grid, fixed to the window.
+            var rules = Path()
+            for k in 1...3 {
+                let x = (size.width * CGFloat(k) / 4).rounded()
+                rules.move(to: CGPoint(x: x, y: 0)); rules.addLine(to: CGPoint(x: x, y: size.height))
+            }
+            ctx.stroke(rules, with: .color(Theme.label.opacity(0.07)), lineWidth: 1)
+        default:
+            break
+        }
+    }
+
+    /// Textures that live on the map itself: stars, speckle, thrown rings, a halftone patch, mist blooms.
+    private func drawWorldTexture(_ ctx: inout GraphicsContext, size: CGSize, style: ThemeStyle) {
+        let visible = CGRect(x: (-size.width / 2 - pan.width) / scale, y: (-size.height / 2 - pan.height) / scale,
+                             width: size.width / scale, height: size.height / scale)
+        switch style.canvas {
+        case .stars, .speckle:
+            let stars = style.canvas == .stars
+            var cell: CGFloat = stars ? 64 : 46
+            while cell * scale < 28 { cell *= 2 }
+            let x0 = Int((visible.minX / cell).rounded(.down)), x1 = Int((visible.maxX / cell).rounded(.up))
+            let y0 = Int((visible.minY / cell).rounded(.down)), y1 = Int((visible.maxY / cell).rounded(.up))
+            guard (x1 - x0 + 1) * (y1 - y0 + 1) < 5000 else { return }
+            var buckets = [Path](repeating: Path(), count: 4)
+            for i in x0...x1 {
+                for j in y0...y1 {
+                    let h = Self.noise(i, j)
+                    let p = CGPoint(x: (CGFloat(i) + h.0) * cell, y: (CGFloat(j) + h.1) * cell)
+                    let r = stars ? (0.5 + h.2 * 1.1) / scale : 1.5 + h.2 * 2.5
+                    buckets[min(3, Int(h.3 * 4))].addEllipse(in: CGRect(x: p.x - r, y: p.y - r, width: r * 2, height: r * 2))
+                }
+            }
+            let colors: [Color] = stars
+                ? [0.16, 0.26, 0.4, 0.6].map { Theme.label.opacity($0) }
+                : [Theme.chip(0), Theme.chip(1), Theme.signal, Theme.accent].map { $0.opacity(0.5) }
+            for (k, path) in buckets.enumerated() { ctx.fill(path, with: .color(colors[k])) }
+        case .rings:
+            // Wheel-thrown rings behind the centre, fading out.
+            var rings = Path()
+            for k in 1...18 {
+                let r = 20 + CGFloat(k) * 22
+                rings.addEllipse(in: CGRect(x: -r, y: -r, width: r * 2, height: r * 2))
+            }
+            ctx.stroke(rings, with: .radialGradient(Gradient(colors: [Theme.hairline, Theme.hairline.opacity(0)]),
+                                                    center: .zero, startRadius: 0, endRadius: 420), lineWidth: 1 / scale)
+        case .halftone:
+            // A halftone patch in pink, with a slightly off-register ink pass.
+            let center = CGPoint(x: -220, y: -160), reach: CGFloat = 240, step: CGFloat = 11
+            var dots = Path()
+            var y = -reach
+            while y <= reach {
+                var x = -reach
+                while x <= reach {
+                    let d = (x * x + y * y).squareRoot()
+                    let r = (1 - d / reach) * 4.2
+                    if r > 0.4 { dots.addEllipse(in: CGRect(x: center.x + x - r, y: center.y + y - r, width: r * 2, height: r * 2)) }
+                    x += step
+                }
+                y += step
+            }
+            ctx.fill(dots.offsetBy(dx: 3, dy: 2), with: .color(Theme.label.opacity(0.07)))
+            ctx.fill(dots, with: .color(Theme.accent.opacity(0.26)))
+        case .mist:
+            let blooms: [(center: CGPoint, radius: CGFloat, tone: Color, alpha: Double)] = [
+                (CGPoint(x: -280, y: -200), 420, Theme.signal, 0.16),
+                (CGPoint(x: 260, y: 140), 460, Theme.accent, 0.1),
+                (CGPoint(x: -40, y: 340), 340, Theme.signal, 0.1)
+            ]
+            for (center, radius, tone, alpha) in blooms {
+                ctx.fill(Path(ellipseIn: CGRect(x: center.x - radius, y: center.y - radius, width: radius * 2, height: radius * 2)),
+                         with: .radialGradient(Gradient(colors: [tone.opacity(alpha), .clear]), center: center, startRadius: 0, endRadius: radius))
+            }
+        default:
+            break
+        }
+    }
+
+    /// Four stable pseudo-random values in 0...1 for a texture cell, so stars and speckles stay put.
+    private static func noise(_ i: Int, _ j: Int) -> (CGFloat, CGFloat, CGFloat, CGFloat) {
+        var h = UInt64(bitPattern: Int64((i &* 73_856_093) ^ (j &* 19_349_663)))
+        func next() -> CGFloat {
+            h = h &* 6_364_136_223_846_793_005 &+ 1_442_695_040_888_963_407
+            return CGFloat((h >> 33) & 0xffff) / 65_535
+        }
+        return (next(), next(), next(), next())
     }
 
     /// When hovering a node or a concept is selected: that node and its direct connections.
@@ -695,7 +1067,7 @@ struct KnowledgeWebView: View {
 
     private func handleTap(at p: CGPoint) {
         guard let i = sim.hitTest(p, scale: scale) else {
-            withAnimation(.easeOut(duration: 0.2)) { selectedConcept = nil }
+            withAnimation(Theme.motion) { selectedConcept = nil }
             return
         }
         switch sim.nodes[i].kind {
@@ -703,7 +1075,7 @@ struct KnowledgeWebView: View {
             selection = id
         case .concept:
             let id = sim.nodes[i].id
-            withAnimation(.easeOut(duration: 0.2)) { selectedConcept = selectedConcept == id ? nil : id }
+            withAnimation(Theme.motion) { selectedConcept = selectedConcept == id ? nil : id }
         }
     }
 
@@ -733,20 +1105,21 @@ struct KnowledgeWebView: View {
 
     private var zoomControls: some View {
         VStack(spacing: 0) {
-            Button { withAnimation(.spring) { scale = clampScale(scale * 1.3); baseScale = scale } } label: {
+            Button { withAnimation(Theme.motion) { scale = clampScale(scale * 1.3); baseScale = scale } } label: {
                 Image(systemName: "plus").frame(width: 40, height: 40).contentShape(Rectangle())
             }
             Rectangle().fill(Theme.hairline).frame(width: 24, height: 1)
-            Button { withAnimation(.spring) { scale = clampScale(scale / 1.3); baseScale = scale } } label: {
+            Button { withAnimation(Theme.motion) { scale = clampScale(scale / 1.3); baseScale = scale } } label: {
                 Image(systemName: "minus").frame(width: 40, height: 40).contentShape(Rectangle())
             }
             Rectangle().fill(Theme.hairline).frame(width: 24, height: 1)
-            Button { withAnimation(.spring) { fit() } } label: {
+            Button { withAnimation(Theme.motion) { fit() } } label: {
                 Image(systemName: "arrow.up.left.and.arrow.down.right").frame(width: 40, height: 40).contentShape(Rectangle())
             }
         }
         .buttonStyle(.plain)
-        .font(.body.weight(.medium))
+        .font(.body)
+        .loomSymbols()
         .foregroundStyle(Theme.label)
         .floatingChrome(RoundedRectangle(cornerRadius: Theme.Radius.panel))
         .padding(.trailing, Theme.Space.s20)
@@ -777,10 +1150,10 @@ struct KnowledgeWebView: View {
                 Toggle("Link Related Files", isOn: $linkSimilar)
                 Toggle("Always Show File Names", isOn: $alwaysShowNames)
                 Divider()
-                Button("Fit to Screen") { withAnimation(.spring) { fit() } }
+                Button("Fit to Screen") { withAnimation(Theme.motion) { fit() } }
                 Button("Shake Up Layout") { sim.resetLayout() }
             } label: {
-                Image(systemName: "slider.horizontal.3").font(.caption.weight(.semibold))
+                Image(systemName: "slider.horizontal.3").font(.caption).loomSymbols()
                     .frame(width: 36, height: 36)
                     .contentShape(Rectangle())
             }
@@ -792,7 +1165,7 @@ struct KnowledgeWebView: View {
         .foregroundStyle(Theme.labelSecondary)
         .padding(.horizontal, Theme.Space.s8).padding(.vertical, Theme.Space.s2)
         // Not interactive: the glass would take the tap on iPhone before the buttons inside it see it.
-        .floatingChrome(Capsule(), interactive: false)
+        .floatingChrome(Theme.pillShape, interactive: false)
         .padding(.leading, Theme.Space.s20)
         .padding(.top, 80)
     }
@@ -802,18 +1175,18 @@ struct KnowledgeWebView: View {
             ForEach(ItemKind.allCases) { kind in
                 let on = kindFilter.contains(kind)
                 Button {
-                    withAnimation(.easeOut(duration: 0.15)) {
+                    withAnimation(Theme.motion) {
                         if on { kindFilter.remove(kind) } else { kindFilter.insert(kind) }
                     }
                 } label: {
                     HStack(spacing: Theme.Space.s4) {
-                        Image(systemName: kind.symbol).font(.caption2.weight(.medium))
-                        if showNames { Text(kind.label).font(.caption2.weight(.medium)) }
+                        Image(systemName: kind.symbol).font(.caption2).loomSymbols()
+                        if showNames { Text(kind.label).loomLabel() }
                     }
                     .foregroundStyle(on ? Theme.accentInk : Theme.labelSecondary)
                     .padding(.horizontal, showNames ? Theme.Space.s6 : Theme.Space.s8)
                     .frame(minWidth: 30, minHeight: 36)
-                    .background(on ? Theme.accentTint : .clear, in: Capsule())
+                    .background(on ? Theme.accentTint : .clear, in: Theme.pillShape)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -832,8 +1205,8 @@ struct KnowledgeWebView: View {
             HStack(spacing: Theme.Space.s12) {
                 Circle().fill(color(of: sim.nodes[i])).frame(width: 10, height: 10)
                 VStack(alignment: .leading, spacing: Theme.Space.s2) {
-                    Text(isSpace ? name : name.capitalized).font(.headline).foregroundStyle(Theme.label)
-                    Text("\(sim.neighbors[i].count) connected").font(.caption).foregroundStyle(Theme.labelSecondary)
+                    Text(isSpace ? name : name.capitalized).font(.loomTitle3).serifTracking().foregroundStyle(Theme.label)
+                    Text("\(sim.neighbors[i].count) connected").loomLabel().foregroundStyle(Theme.labelSecondary)
                 }
                 if !isSpace {
                     Button {
@@ -842,7 +1215,7 @@ struct KnowledgeWebView: View {
                     } label: { Label("New note here", systemImage: "square.and.pencil") }
                     .buttonStyle(.bordered)
                 }
-                Button { withAnimation { selectedConcept = nil } } label: { Image(systemName: "xmark") }
+                Button { withAnimation(Theme.motion) { selectedConcept = nil } } label: { Image(systemName: "xmark").loomSymbols() }
                     .buttonStyle(.plain)
                     .foregroundStyle(Theme.labelSecondary)
             }
@@ -856,7 +1229,7 @@ struct KnowledgeWebView: View {
 
     private var emptyState: some View {
         VStack(spacing: Theme.Space.s12) {
-            Image(systemName: "brain.head.profile").font(.system(size: 36, weight: .regular)).foregroundStyle(Theme.labelSecondary)
+            Image(systemName: "brain.head.profile").font(.system(size: 36, weight: Theme.style.symbolWeight)).foregroundStyle(Theme.labelSecondary)
             Text("Your mind map grows as you save things").font(.loomTitle3).serifTracking().foregroundStyle(Theme.label)
             Text("Add notes, links, photos, videos or files with +, or drop them here. The on-device AI finds the concepts and connects everything.")
                 .multilineTextAlignment(.center).foregroundStyle(Theme.labelSecondary).frame(maxWidth: 400)
@@ -896,7 +1269,7 @@ struct ItemCard: View {
                         .frame(width: 20, height: 20)
                         .background(color, in: RoundedRectangle(cornerRadius: Theme.Radius.badge))
                     Text(item.url?.host() ?? item.kind.label.dropLast().description)
-                        .font(.caption2.weight(.medium))
+                        .loomLabel()
                         .foregroundStyle(Theme.labelSecondary)
                         .lineLimit(1)
                     Spacer(minLength: 0)
@@ -905,7 +1278,8 @@ struct ItemCard: View {
                     }
                 }
                 Text(item.displayTitle)
-                    .font(.footnote.weight(.semibold))
+                    .font(Theme.current.display.font(size: 15, relativeTo: .footnote))
+                    .serifTracking()
                     .foregroundStyle(Theme.label)
                     .lineLimit(2)
                 if !item.preview.isEmpty {
@@ -919,7 +1293,7 @@ struct ItemCard: View {
                 }
                 if !item.tags.isEmpty {
                     Text(item.tags.prefix(4).map { "#\($0)" }.joined(separator: " "))
-                        .font(.caption2).foregroundStyle(Theme.labelSecondary).lineLimit(1)
+                        .font(.loomLabel).foregroundStyle(Theme.labelSecondary).lineLimit(1)
                 }
             }
             .padding(Theme.Space.s12)
@@ -934,4 +1308,20 @@ struct ItemCard: View {
             }
         }
     }
+}
+
+/// A topic laid out for drawing on the map: its box, resolved text and selection.
+private struct MapTopic {
+    let index: Int
+    let rect: CGRect
+    let name: GraphicsContext.ResolvedText
+    let count: GraphicsContext.ResolvedText
+    let nameSize: CGSize
+    let countSize: CGSize
+    let selected: Bool
+    let fontSize: CGFloat
+    /// How many things the topic holds.
+    let total: Int
+    let corner: CGFloat
+    let colorIndex: Int
 }

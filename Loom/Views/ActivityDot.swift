@@ -46,8 +46,8 @@ struct ActivityDot: View {
                     dot.scaleEffect(level == .adding || level == .thinking ? (phase ? 1.25 : 0.9) : 1)
                 } animation: { _ in .easeInOut(duration: 0.8) }
                 .frame(width: 44, height: 44)
-                .contentShape(Circle())
-                .floatingChrome(Circle())
+                .contentShape(Theme.pillShape)
+                .floatingChrome(Theme.pillShape)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(ActivityPanel.headline(level, librarian))
@@ -111,11 +111,11 @@ struct ActivityPanel: View {
                 Rectangle().fill(Theme.hairline).frame(height: 1)
                 HStack {
                     if activities.contains(where: \.stage.isFinished) {
-                        Button("Clear finished") { withAnimation { librarian.clearFinishedActivities() } }
+                        Button("Clear finished") { withAnimation(Theme.motion) { librarian.clearFinishedActivities() } }
                     }
                     Spacer()
                     if working > 0 || background > 0 {
-                        Button("Cancel all", role: .destructive) { withAnimation { librarian.cancelAll() } }
+                        Button("Cancel all", role: .destructive) { withAnimation(Theme.motion) { librarian.cancelAll() } }
                             .foregroundStyle(Theme.destructive)
                     }
                 }
@@ -151,7 +151,7 @@ struct ActivityPanel: View {
             .onTapGesture { if !activity.isPlaceholder { onOpen(activity.id) } }
             Spacer(minLength: 0)
             if !activity.stage.isFinished && !activity.isPlaceholder {
-                Button { withAnimation { librarian.cancel(activity.id) } } label: {
+                Button { withAnimation(Theme.motion) { librarian.cancel(activity.id) } } label: {
                     Image(systemName: "xmark.circle.fill")
                         .font(.title3)
                         .foregroundStyle(Theme.labelTertiary)

@@ -111,7 +111,7 @@ struct AskView: View {
                             .font(.callout)
                             .foregroundStyle(Theme.label)
                             .padding(.horizontal, Theme.Space.s12).padding(.vertical, Theme.Space.s8)
-                            .background(Theme.surfaceSunken, in: Capsule())
+                            .background(Theme.surfaceSunken, in: Theme.pillShape)
                     }
                     .buttonStyle(.plain)
                     .disabled(!llm.isReady)
@@ -325,7 +325,7 @@ struct MessageLine: View {
                             }
                             .font(.caption)
                             .padding(.horizontal, Theme.Space.s8).padding(.vertical, Theme.Space.s4)
-                            .background(Theme.surfaceSunken, in: Capsule())
+                            .background(Theme.surfaceSunken, in: Theme.pillShape)
                         }
                         .buttonStyle(.plain)
                     }

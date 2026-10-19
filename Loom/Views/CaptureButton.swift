@@ -76,14 +76,31 @@ struct CaptureButton: View {
     }
 }
 
-/// The "+" itself: Loom's one primary action. Accent-tinted Liquid Glass where available,
-/// otherwise the signature gradient with its accent glow.
+/// The "+" itself: Loom's one primary action. Accent-tinted Liquid Glass in the glass languages where available,
+/// otherwise the signature gradient with its accent glow; the print and clay languages press a flat accent
+/// disc with their own outline and depth.
 private struct CaptureGlyph: View {
     var body: some View {
+        let style = Theme.style
         let plus = Image(systemName: "plus")
-            .font(.title2.weight(.semibold))
+            .font(.title2)
+            .fontWeight(style.symbolWeight == .light ? .regular : .semibold)
             .foregroundStyle(Theme.onAccent)
             .frame(width: 56, height: 56)
+        if style.glass {
+            glass(plus)
+        } else {
+            plus
+                .background(Theme.signature, in: Circle())
+                .overlay {
+                    if style.inkOutline { Circle().strokeBorder(Theme.label, lineWidth: style.outline) }
+                }
+                .tileShadow()
+        }
+    }
+
+    @ViewBuilder
+    private func glass(_ plus: some View) -> some View {
         if #available(iOS 26.0, macOS 26.0, *) {
             plus
                 .background(Theme.signature.opacity(0.55), in: Circle())

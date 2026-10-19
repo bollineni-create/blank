@@ -61,7 +61,7 @@ struct RootView: View {
                         .font(.headline)
                         .foregroundStyle(Theme.label)
                         .padding(.horizontal, Theme.Space.s20).padding(.vertical, Theme.Space.s12)
-                        .surfaceTile(Capsule())
+                        .surfaceTile(Theme.pillShape)
                 }
                 .padding(Theme.Space.s12)
                 .allowsHitTesting(false)
@@ -170,7 +170,7 @@ struct RootView: View {
         HStack(alignment: .top, spacing: Theme.Space.s12) {
             VStack(alignment: .leading, spacing: Theme.Space.s8) {
                 HStack(spacing: Theme.Space.s8) {
-                    Image(systemName: "magnifyingglass").foregroundStyle(Theme.labelSecondary)
+                    Image(systemName: "magnifyingglass").loomSymbols().foregroundStyle(Theme.labelSecondary)
                     TextField("Search your brain", text: $search)
                         .textFieldStyle(.plain)
                         .foregroundStyle(Theme.label)
@@ -182,13 +182,15 @@ struct RootView: View {
                     }
                 }
                 .padding(.horizontal, Theme.Space.s16).padding(.vertical, Theme.Space.s12)
-                .floatingChrome(Capsule())
-                // The theme's soft glow behind search. A light, not a fill: text never sits on it.
-                .background(
-                    Theme.glow(radius: 200)
-                        .frame(width: 400, height: 400)
-                        .allowsHitTesting(false)
-                )
+                .floatingChrome(Theme.pillShape)
+                // The theme's soft glow behind search, in the languages that have one. A light, not a fill: text never sits on it.
+                .background {
+                    if Theme.style.centerGlow {
+                        Theme.glow(radius: 200)
+                            .frame(width: 400, height: 400)
+                            .allowsHitTesting(false)
+                    }
+                }
 
                 if searchFocused || !search.isEmpty, !searchResults.isEmpty {
                     VStack(alignment: .leading, spacing: 0) {
@@ -234,18 +236,19 @@ struct RootView: View {
                     #endif
                     Button { showingSettings = true } label: {
                         Image(systemName: "gearshape")
-                            .font(.body.weight(.medium))
+                            .font(.body)
+                            .loomSymbols()
                             .foregroundStyle(Theme.label)
                             .frame(width: 44, height: 44)
-                            .contentShape(Circle())
-                            .floatingChrome(Circle())
+                            .contentShape(Theme.pillShape)
+                            .floatingChrome(Theme.pillShape)
                     }
                     .buttonStyle(.plain)
                     .help("Settings")
                 }
             }
         }
-        .animation(.easeOut(duration: 0.15), value: searchFocused)
+        .animation(Theme.motion, value: searchFocused)
     }
 
     private var searchResults: [Item] {
@@ -266,7 +269,7 @@ struct RootView: View {
             HStack(alignment: .bottom, spacing: Theme.Space.s12) {
                 CaptureButton()
                 HStack(spacing: Theme.Space.s8) {
-                    Image(systemName: "sparkles").foregroundStyle(Theme.accentInk)
+                    Image(systemName: "sparkles").loomSymbols().foregroundStyle(Theme.accentInk)
                     TextField(llm.isReady ? "Ask your brain anything…" : "Ask your brain (needs Apple Intelligence)", text: $question)
                         .textFieldStyle(.plain)
                         .foregroundStyle(Theme.label)
@@ -278,7 +281,7 @@ struct RootView: View {
                     .disabled(question.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
                 .padding(.horizontal, Theme.Space.s16).padding(.vertical, Theme.Space.s12)
-                .floatingChrome(Capsule())
+                .floatingChrome(Theme.pillShape)
                 .frame(maxWidth: 560)
                 Spacer(minLength: 60) // room for the zoom controls
             }
@@ -316,7 +319,7 @@ struct ModelStatusChip: View {
         .foregroundStyle(Theme.label)
         .padding(.horizontal, Theme.Space.s12)
         .frame(minWidth: 44, minHeight: 44, maxHeight: 44)
-        .floatingChrome(Capsule())
+        .floatingChrome(Theme.pillShape)
         .help(llm.isReady ? (llm.activeModelName ?? "") : AIAvailabilityNotice.message(for: llm))
     }
 
@@ -373,12 +376,12 @@ struct UploadsTray: View {
                         Text("Uploads").font(.subheadline.weight(.semibold))
                     }
                     Spacer()
-                    Button { withAnimation(.snappy) { collapsed.toggle() } } label: {
+                    Button { withAnimation(Theme.motion) { collapsed.toggle() } } label: {
                         Image(systemName: collapsed ? "chevron.down" : "chevron.up").font(.caption.weight(.bold))
                     }
                     .buttonStyle(.plain)
                     if working == 0 {
-                        Button { withAnimation { librarian.clearFinishedActivities() } } label: {
+                        Button { withAnimation(Theme.motion) { librarian.clearFinishedActivities() } } label: {
                             Image(systemName: "xmark").font(.caption.weight(.bold))
                         }
                         .buttonStyle(.plain)
@@ -409,7 +412,7 @@ struct UploadsTray: View {
             .overlay(RoundedRectangle(cornerRadius: Theme.Radius.panel).strokeBorder(Theme.hairline))
             .floatShadow()
             .transition(.move(edge: .trailing).combined(with: .opacity))
-            .animation(.snappy, value: activities)
+            .animation(Theme.motion, value: activities)
         }
     }
 

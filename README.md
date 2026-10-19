@@ -11,7 +11,7 @@ A personal take on [Fabric](https://apps.apple.com/us/app/fabric-your-second-bra
 | **Semantic search** | Search matches meaning as well as keywords. It uses Apple's built-in sentence embeddings, so it works offline even without Apple Intelligence. |
 | **Ask your library** | Chat with your stuff. Answers are grounded in your saved items and cite them as `[1]`, `[2]`, and each source is a tappable link. Chats are saved. |
 | **Spaces and tags** | Folders ("Spaces"), auto tags, favorites, and filters by type. |
-| **Themes** | Eleven looks in **Settings → Theme**: the original Loom and ten design languages (Paper & Ink, Herbarium, Observatory, Blueprint, Terrazzo, Swiss Index, Kiln, Lamplight, Riso, Mist). Each one changes the colours, fonts and corners, in light and dark mode. Kiln is the default. |
+| **Themes** | Eleven looks in **Settings → Theme**: the original Loom and ten design languages from the Loom Design Languages system (Paper & Ink, Herbarium, Observatory, Blueprint, Terrazzo, Swiss Index, Kiln, Lamplight, Riso, Mist). Each is a whole language, in light and dark mode: colours, display, body and label type, corners, tile depth (soft light, shelf shadows, ruled and flat, hard offset prints, frosted glass), icon weight and motion, and its own map: underlined words on ruled paper, specimen labels, stars in a night sky, drafted boxes on grid paper, chunky chips on speckled stone, Swiss blocks, glazed pebbles on thrown rings, words in lamplight, misprinted tags over halftone, frosted pills in mist. Kiln is the default. |
 
 ## Requirements
 
