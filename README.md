@@ -32,6 +32,17 @@ If you change `project.yml`, regenerate the project with `brew install xcodegen`
 
 Note for iPhone: with a free Apple ID, apps you sideload expire after 7 days. Re-run from Xcode to refresh. A paid developer account lasts a year.
 
+## Install on your Mac
+
+To get Loom into your Applications folder, run one command. After that you can open it from the Dock, Launchpad or Spotlight like any other app:
+
+```bash
+./scripts/install-mac.sh               # builds, installs /Applications/Loom.app and opens it
+./scripts/install-mac.sh --no-install  # builds only, into build/
+```
+
+It needs Xcode but no Apple ID, because the build is ad-hoc signed. Run it again after you pull changes to update the installed app. On another Mac, right-click the app and choose **Open** the first time.
+
 ## Sharing one library between Mac and iPhone (iCloud)
 
 The library syncs through your private iCloud database (container `iCloud.com.personal.loom`). If it isn't set up, each device silently keeps its own library. **Settings → iCloud sync** on each device shows whether sync is on, and if not, why.
