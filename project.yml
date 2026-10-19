@@ -47,6 +47,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.personal.loom.ios
         TARGETED_DEVICE_FAMILY: "1,2"
         CODE_SIGN_ENTITLEMENTS: Loom/Resources/Loom-iOS.entitlements
+        INFOPLIST_FILE: Config/Loom-iOS-Info.plist
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight
 

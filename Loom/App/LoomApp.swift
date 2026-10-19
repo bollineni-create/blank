@@ -18,7 +18,11 @@ final class LoomServices {
         llm = LLMService()
         librarian = Librarian(llm: llm)
         do {
-            container = try ModelContainer(for: Item.self, Space.self, Conversation.self, ChatMessage.self)
+            // Syncs through the private iCloud database named in the entitlements, so the Mac and
+            // iPhone share one library. Without iCloud (signed out, unsigned build) it stays on this device.
+            let configuration = ModelConfiguration(cloudKitDatabase: .automatic)
+            container = try ModelContainer(for: Item.self, Space.self, Conversation.self, ChatMessage.self,
+                                           configurations: configuration)
         } catch {
             fatalError("Could not open the library database: \(error)")
         }
@@ -36,6 +40,7 @@ final class LoomServices {
             try? context.save()
         }
         librarian.upgradeOldSummaries()
+        librarian.backfillAttachmentsForSync()
         llm.refreshAppleAvailability()
         if !llm.usesAppleModel { llm.loadSelectedIfDownloaded() }
         librarian.runQueue()
