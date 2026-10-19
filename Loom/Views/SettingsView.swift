@@ -47,6 +47,24 @@ struct SettingsView: View {
                 LabeledContent("Organized", value: "\(items.filter { $0.aiStatus == .done }.count)")
             }
 
+            Section {
+                LabeledContent("iCloud sync") {
+                    HStack(spacing: Theme.Space.s6) {
+                        Circle()
+                            .fill(LoomServices.shared.iCloudProblem == nil ? Theme.statusReady : Color.orange)
+                            .frame(width: 8, height: 8)
+                        Text(LoomServices.shared.iCloudProblem == nil ? "On" : "Off: this device only")
+                    }
+                }
+                if let problem = LoomServices.shared.iCloudProblem {
+                    Text(problem).font(.caption).foregroundStyle(.secondary)
+                }
+            } header: {
+                Text("Sync")
+            } footer: {
+                Text("Your library syncs between your Mac, iPhone and iPad through your private iCloud, signed in with the same Apple ID. The AI runs separately on each device.")
+            }
+
             Section("Search") {
                 Text("Semantic search uses Apple's built-in on-device sentence embeddings, so it works even with no model loaded.")
                     .font(.callout).foregroundStyle(.secondary)

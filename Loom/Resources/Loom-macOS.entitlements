@@ -21,5 +21,10 @@
 	<!-- Silent pushes tell the app when the other device changed something. -->
 	<key>com.apple.developer.aps-environment</key>
 	<string>development</string>
+	<!-- Shared drop box with the Share extension. -->
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>group.com.personal.loom</string>
+	</array>
 </dict>
 </plist>

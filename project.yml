@@ -14,6 +14,8 @@ settings:
     CURRENT_PROJECT_VERSION: "1"
     DEVELOPMENT_TEAM: ""   # set your Apple ID team in Xcode > Signing & Capabilities
     CODE_SIGN_STYLE: Automatic
+    # Loom doesn't use custom encryption, so TestFlight / App Store uploads skip the export-compliance question.
+    INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: NO
 
 packages:
   LlamaKit:
@@ -24,9 +26,7 @@ targetTemplates:
     type: application
     sources:
       - path: Loom
-    dependencies:
-      - package: LlamaKit
-        product: LlamaKit
+      - path: Shared
     settings:
       base:
         PRODUCT_NAME: Loom
@@ -50,6 +50,12 @@ targets:
         INFOPLIST_FILE: Config/Loom-iOS-Info.plist
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight
+        # iPad apps must allow every orientation (App Store / TestFlight validation).
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight
+    dependencies:
+      - package: LlamaKit
+        product: LlamaKit
+      - target: LoomShare-iOS
 
   Loom-macOS:
     templates: [LoomApp]
@@ -60,3 +66,43 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.personal.loom.mac
         CODE_SIGN_ENTITLEMENTS: Loom/Resources/Loom-macOS.entitlements
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.productivity
+    dependencies:
+      - package: LlamaKit
+        product: LlamaKit
+      - target: LoomShare-macOS
+
+  # "Share → Loom" from any app. Saves into a shared inbox that Loom imports.
+  LoomShare-iOS:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: ShareExtension
+        excludes: ["*.entitlements"]
+      - path: Shared
+    settings:
+      base:
+        PRODUCT_NAME: LoomShare
+        PRODUCT_BUNDLE_IDENTIFIER: com.personal.loom.ios.share
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_FILE: Config/LoomShare-iOS-Info.plist
+        INFOPLIST_KEY_CFBundleDisplayName: Loom
+        CODE_SIGN_ENTITLEMENTS: ShareExtension/LoomShare-iOS.entitlements
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SKIP_INSTALL: YES
+
+  LoomShare-macOS:
+    type: app-extension
+    platform: macOS
+    sources:
+      - path: ShareExtension
+        excludes: ["*.entitlements"]
+      - path: Shared
+    settings:
+      base:
+        PRODUCT_NAME: LoomShare
+        PRODUCT_BUNDLE_IDENTIFIER: com.personal.loom.mac.share
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_FILE: Config/LoomShare-macOS-Info.plist
+        INFOPLIST_KEY_CFBundleDisplayName: Loom
+        CODE_SIGN_ENTITLEMENTS: ShareExtension/LoomShare-macOS.entitlements
+        SKIP_INSTALL: YES

@@ -205,11 +205,35 @@ final class Librarian {
             item.aiStatus = .pending
             finishAdding(item)
         }
+        return item
+    }
+
+    /// Imports what was saved from the Share menu while Loom was closed or in the background.
+    func importShareInbox() {
+        guard context != nil else { return }
+        for (entry, note) in ShareInbox.pending() {
+            switch entry.kind {
+            case .link:
+                if let string = entry.url, let url = URL(string: string) { addLink(url, comment: entry.comment) }
+            case .text:
+                if let text = entry.text {
+                    if entry.comment.isEmpty { addPasted(text) } else { addNote(text + "\n\n" + entry.comment) }
+                }
+            case .file:
+                if let name = entry.fileName, let url = ShareInbox.fileURL(name),
+                   FileManager.default.fileExists(atPath: url.path) {
+                    let item = addFile(url, removeSourceWhenDone: true)
+                    if !entry.comment.isEmpty { item.body = entry.comment }
+                }
+            }
+            ShareInbox.finish(note)
+        }
     }
 
     /// Adds any file. It appears right away; copying and reading happen in the background.
     /// Pass `removeSourceWhenDone` for temporary copies (drops, Photos) so they're cleaned up after.
-    func addFile(_ url: URL, space: Space? = nil, removeSourceWhenDone: Bool = false) {
+    @discardableResult
+    func addFile(_ url: URL, space: Space? = nil, removeSourceWhenDone: Bool = false) -> Item {
         let type = UTType(filenameExtension: url.pathExtension) ?? .data
         let kind: ItemKind = type.conforms(to: .pdf) ? .pdf
             : type.conforms(to: .image) ? .image

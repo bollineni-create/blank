@@ -12,19 +12,28 @@ final class LoomServices {
     let librarian: Librarian
     /// Requests from App Intents that the main page acts on.
     let router = LoomRouter()
+    /// Why iCloud sync is off, if it couldn't start (the library then stays on this device).
+    let iCloudProblem: String?
 
     private init() {
         LLMService.configureEnvironment()
         llm = LLMService()
         librarian = Librarian(llm: llm)
+        let schema = Schema([Item.self, Space.self, Conversation.self, ChatMessage.self])
         do {
             // Syncs through the private iCloud database named in the entitlements, so the Mac and
             // iPhone share one library. Without iCloud (signed out, unsigned build) it stays on this device.
-            let configuration = ModelConfiguration(cloudKitDatabase: .automatic)
-            container = try ModelContainer(for: Item.self, Space.self, Conversation.self, ChatMessage.self,
-                                           configurations: configuration)
+            container = try ModelContainer(for: schema, configurations: ModelConfiguration(cloudKitDatabase: .automatic))
+            iCloudProblem = nil
         } catch {
-            fatalError("Could not open the library database: \(error)")
+            // iCloud isn't set up for this build (e.g. the container isn't created yet): keep working
+            // on-device rather than refusing to open.
+            do {
+                container = try ModelContainer(for: schema, configurations: ModelConfiguration(cloudKitDatabase: .none))
+                iCloudProblem = error.localizedDescription
+            } catch {
+                fatalError("Could not open the library database: \(error)")
+            }
         }
     }
 
@@ -41,6 +50,8 @@ final class LoomServices {
         }
         librarian.upgradeOldSummaries()
         librarian.backfillAttachmentsForSync()
+        librarian.importShareInbox()
+        ShareInbox.observe { [librarian] in librarian.importShareInbox() }
         llm.refreshAppleAvailability()
         if !llm.usesAppleModel { llm.loadSelectedIfDownloaded() }
         librarian.runQueue()
@@ -83,7 +94,10 @@ struct LoomApp: App {
                     if ready { librarian.modelBecameReady() }
                 }
                 .onChange(of: scenePhase) { _, phase in
-                    if phase == .active { llm.refreshAppleAvailability() }
+                    if phase == .active {
+                        llm.refreshAppleAvailability()
+                        librarian.importShareInbox()
+                    }
                 }
         }
         .modelContainer(container)
