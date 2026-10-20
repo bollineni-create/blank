@@ -50,6 +50,16 @@ struct SettingsView: View {
             }
 
             Section {
+                let broken = librarian.brokenFiles(syncing: sync.hasCloudKit == true)
+                LabeledContent("Broken files", value: "\(broken.count)")
+                CleanUpButton(files: broken, label: "Clean up broken files…")
+            } header: {
+                Text("Library")
+            } footer: {
+                Text("A broken file is one whose copy into the library never finished, or one that's in the library with no file behind it on this device or in iCloud. Clean up removes them all at once. Files Apple Intelligence couldn't summarize aren't broken: Retry in the status panel runs them again.")
+            }
+
+            Section {
                 LabeledContent("Status") {
                     HStack(spacing: Theme.Space.s6) {
                         Circle().fill(syncColor).frame(width: 8, height: 8)

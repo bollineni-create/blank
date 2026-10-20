@@ -215,6 +215,49 @@ final class Librarian {
         if let item = fetchItem(id) { delete(item) }
     }
 
+    // MARK: Cleaning up
+
+    /// A file that's broken: it never made it into the library whole, or what's in the library has no file behind it.
+    struct BrokenFile: Identifiable, Equatable {
+        enum Reason {
+            /// Its copy failed, so it's still in the status list and never joined the library.
+            case copyFailed
+            /// It's in the library, but its file is neither on this device nor in iCloud.
+            case fileMissing
+        }
+        let id: UUID
+        let reason: Reason
+    }
+
+    /// Every broken file: status-list entries whose copy failed, and items whose file is missing from this
+    /// device and from iCloud. Nothing still being added counts, and with `syncing` on, neither does an item
+    /// another device is still adding (its file arrives when that device finishes). An item Apple Intelligence
+    /// couldn't summarize isn't broken: its file is whole, and Retry runs it again.
+    func brokenFiles(syncing: Bool) -> [BrokenFile] {
+        var broken: [BrokenFile] = []
+        for activity in activities where activity.stage.isFailed && failedAdds[activity.id] != nil {
+            broken.append(BrokenFile(id: activity.id, reason: .copyFailed))
+        }
+        // An item with a copy for iCloud can't be missing its file: the file is written from that copy on first use.
+        let note = ItemKind.note.rawValue
+        let link = ItemKind.link.rawValue
+        let candidates = (try? context?.fetch(FetchDescriptor<Item>(
+            predicate: #Predicate { $0.attachmentData == nil && $0.kindRaw != note && $0.kindRaw != link }))) ?? []
+        for item in candidates {
+            if let name = item.attachmentName, AttachmentStore.hasFile(named: name) { continue }
+            if addTasks[item.id] != nil || organizing?.id == item.id { continue }
+            let beingAddedElsewhere = item.aiStatus == .importing || item.aiStatus == .processing
+            if syncing && beingAddedElsewhere { continue }
+            broken.append(BrokenFile(id: item.id, reason: .fileMissing))
+        }
+        return broken
+    }
+
+    /// Removes broken files in one go: what Remove does for each, without going row by row.
+    func cleanUp(_ files: [BrokenFile]) {
+        for file in files { discard(file.id) }
+    }
+
     private func fetchItem(_ id: UUID) -> Item? {
         try? context?.fetch(FetchDescriptor<Item>(predicate: #Predicate { $0.id == id })).first
     }

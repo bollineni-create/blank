@@ -83,10 +83,12 @@ struct ActivityDot: View {
     }
 }
 
-/// Every file being added or organized, with a mini progress bar and a cancel button each.
+/// Every file being added or organized, with a mini progress bar and a cancel button each, and a line
+/// for broken files with one button that cleans them all up.
 struct ActivityPanel: View {
     @Environment(Librarian.self) private var librarian
     @Environment(LLMService.self) private var llm
+    @Environment(SyncMonitor.self) private var sync
     var onOpen: (UUID) -> Void
 
     var body: some View {
@@ -94,12 +96,16 @@ struct ActivityPanel: View {
         let activities = librarian.activities
         let working = activities.filter { !$0.stage.isFinished }.count
         let background = max(0, librarian.processingCount - working)
+        let broken = librarian.brokenFiles(syncing: sync.hasCloudKit == true)
+        // Broken files that have no row in the list still need attention.
+        let listed = Set(activities.map(\.id))
+        let unlisted = broken.filter { !listed.contains($0.id) }.count
 
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: Theme.Space.s8) {
                 Circle().fill(level.color).frame(width: 10, height: 10)
                 VStack(alignment: .leading, spacing: 2) {
-                    let headline = Self.headline(level, librarian)
+                    let headline = Self.headline(level, librarian, unlisted: unlisted)
                     Text(headline).font(.subheadline.weight(.semibold))
                     if headline != Self.gettingReady {
                         Text(modelLine).font(.caption).foregroundStyle(Theme.labelSecondary).lineLimit(2)
@@ -146,10 +152,26 @@ struct ActivityPanel: View {
                 .foregroundStyle(Theme.accentInk)
                 .padding(Theme.Space.s12)
             }
+
+            if !broken.isEmpty {
+                Rectangle().fill(Theme.hairline).frame(height: 1)
+                HStack(spacing: Theme.Space.s8) {
+                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Theme.statusWarning)
+                    Text("\(broken.count) broken \(broken.count == 1 ? "file" : "files")")
+                        .foregroundStyle(Theme.label)
+                    Spacer(minLength: 0)
+                    CleanUpButton(files: broken)
+                        .foregroundStyle(Theme.accentInk)
+                }
+                .font(.callout.weight(.medium))
+                .buttonStyle(.plain)
+                .padding(Theme.Space.s12)
+            }
         }
         .frame(width: 320)
         .background(Theme.surface)
         .animation(.snappy, value: activities)
+        .animation(.snappy, value: broken)
     }
 
     private func row(_ activity: Librarian.Activity) -> some View {
@@ -231,8 +253,9 @@ struct ActivityPanel: View {
 
     static let gettingReady = "AI is getting ready…"
 
+    /// `unlisted` counts broken files that have no row in the list; the panel passes it, the dot leaves it out.
     @MainActor
-    static func headline(_ level: ActivityLevel, _ librarian: Librarian) -> String {
+    static func headline(_ level: ActivityLevel, _ librarian: Librarian, unlisted: Int = 0) -> String {
         let adding = librarian.activities.filter(\.stage.isAdding).count
         switch level {
         case .adding: return "Adding \(adding) \(adding == 1 ? "file" : "files")…"
@@ -240,9 +263,53 @@ struct ActivityPanel: View {
             let n = max(librarian.processingCount, librarian.activities.filter { $0.stage == .queued || $0.stage == .summarizing }.count)
             return n > 0 ? "AI is organizing \(n) \(n == 1 ? "item" : "items")…" : gettingReady
         case .ready:
-            let failed = librarian.activities.filter(\.stage.isFailed).count
+            let failed = librarian.activities.filter(\.stage.isFailed).count + unlisted
             return failed > 0 ? "\(failed) \(failed == 1 ? "file needs" : "files need") attention" : "All caught up"
         case .unavailable: return "No AI model"
         }
+    }
+}
+
+/// One button that removes every broken file, after a dialog says what that covers. In the status panel and
+/// in Settings. `files` is what `Librarian.brokenFiles` found, so what the dialog counts is what's removed.
+struct CleanUpButton: View {
+    @Environment(Librarian.self) private var librarian
+    @Environment(SyncMonitor.self) private var sync
+    var files: [Librarian.BrokenFile]
+    var label = "Clean up…"
+    @State private var confirming = false
+
+    var body: some View {
+        let count = files.count
+        Button(label) { confirming = true }
+            .disabled(files.isEmpty)
+            .help("Remove every broken file")
+            .confirmationDialog("Remove \(count) broken \(count == 1 ? "file" : "files")?",
+                                isPresented: $confirming, titleVisibility: .visible) {
+                Button("Remove \(count) \(count == 1 ? "File" : "Files")", role: .destructive) {
+                    withAnimation(Theme.motion) { librarian.cleanUp(files) }
+                }
+                Button("Cancel", role: .cancel) { }
+            } message: {
+                Text(message)
+            }
+    }
+
+    private var message: String {
+        let failed = files.filter { $0.reason == .copyFailed }.count
+        let missing = files.filter { $0.reason == .fileMissing }.count
+        var parts: [String] = []
+        if failed > 0 {
+            parts.append("\(failed) couldn't be copied into your library")
+        }
+        if missing > 0 {
+            parts.append("\(missing) \(missing == 1 ? "is" : "are") in the library but missing \(missing == 1 ? "its" : "their") file, on this device and in iCloud")
+        }
+        var text = parts.joined(separator: ", and ") + ". "
+        text += "They're taken out of the library and the status list. Files Apple Intelligence couldn't summarize are kept; Retry runs them again."
+        if missing > 0, sync.hasCloudKit == true {
+            text += " A file that was saved on another device is removed there too. To keep it, open Settings on that device and tap Send everything on this device to iCloud first; its file then fills in here."
+        }
+        return text
     }
 }
