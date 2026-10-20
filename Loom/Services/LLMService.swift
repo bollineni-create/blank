@@ -18,20 +18,29 @@ final class LLMService {
     /// How much item text to put in one prompt; Apple's model has a small context window.
     var inputBudgetCharacters: Int { AppleModelEngine.inputBudgetCharacters }
 
-    /// How long one call may take. Apple's model answers in seconds, so a call that runs this long has hung.
-    /// Without a limit, one hung call held the organizing queue forever: everything behind it sat at
-    /// "Queued for summary…" with nothing to show why, and Ask waited on the same stuck call.
-    static let organizeTimeout: Duration = .seconds(120)
-    static let answerTimeout: Duration = .seconds(240)
-    /// Hung calls back to back: the model itself is stuck, so pause it instead of timing out item after item.
-    private var timeoutsInARow = 0
+    /// How long the model may go quiet before a call is given up on. Answers stream in as the model writes
+    /// them, so a slow answer keeps showing signs of life and is left to finish; one silent this long has hung.
+    /// The limit used to be on the whole call. On a busy Mac (files being read, transcribed and embedded at the
+    /// same time) Apple's model slows down a lot, and healthy calls were cut off at the limit and marked failed,
+    /// while the cut-off call kept the model busy behind the next one. Each batch got through fewer items
+    /// than the last, and the queue stalled on and off.
+    static let stallTimeout: Duration = .seconds(120)
+
+    /// Called when the model becomes usable again after being unavailable or paused, so the organizing queue
+    /// picks up where it stopped. Set by `LoomServices`; it doesn't depend on a window being open.
+    var becameReady: (@MainActor () -> Void)?
 
     /// Re-reads Apple Intelligence availability. While the model is getting ready (or away for a reason the
     /// system doesn't name), checks again shortly, so queued work carries on once it's back.
     func refreshAppleAvailability() {
         guard !applePaused else { return }
+        let wasReady = isReady
         appleAvailability = AppleModelEngine.availability
         availabilityRecheck?.cancel()
+        if isReady {
+            if !wasReady { becameReady?() }
+            return
+        }
         guard appleAvailability == .notReady || appleAvailability == .unavailable else { return }
         scheduleAvailabilityRecheck(after: 20)
     }
@@ -40,6 +49,7 @@ final class LLMService {
     private var applePaused = false
 
     /// Treats Apple's model as "getting ready" for a minute, so work waits instead of failing over and over.
+    /// After a hung call this also gives the system time to let that call go before the next one starts.
     private func pauseAppleModel() {
         applePaused = true
         appleAvailability = .notReady
@@ -70,14 +80,17 @@ final class LLMService {
         isGenerating = true
         defer { isGenerating = false }
         do {
-            let answer = try await withDeadline(Self.answerTimeout) {
+            return try await withDeadline(Self.stallTimeout) { stillWorking in
                 try await AppleModelEngine.generate(
-                    system: system, prompt: prompt, maxTokens: maxTokens, temperature: temperature, onToken: onToken)
+                    system: system, prompt: prompt, maxTokens: maxTokens, temperature: temperature,
+                    onToken: { text in
+                        stillWorking()
+                        onToken?(text)
+                    })
             }
-            timeoutsInARow = 0
-            return answer
         } catch is ModelTimeout {
-            throw timedOut()
+            pauseAppleModel()
+            throw AppleModelError.timedOut
         } catch let error as AppleModelError where error.isRuntimeFailure {
             pauseAppleModel()
             throw error
@@ -91,38 +104,33 @@ final class LLMService {
         isGenerating = true
         defer { isGenerating = false }
         do {
-            let fields = try await withDeadline(Self.organizeTimeout) {
-                try await AppleModelEngine.organize(prompt, instructions: instructions)
+            return try await withDeadline(Self.stallTimeout) { stillWorking in
+                try await AppleModelEngine.organize(prompt, instructions: instructions, onProgress: stillWorking)
             }
-            timeoutsInARow = 0
-            return fields
         } catch is ModelTimeout {
-            throw timedOut()
+            // The model went silent: it's stuck, not slow. Pause it so the queue waits instead of hanging the
+            // same way on the next item (the librarian puts the item back in line once).
+            pauseAppleModel()
+            throw AppleModelError.timedOut
         } catch let error as AppleModelError where error.isRuntimeFailure {
             pauseAppleModel()
             throw error
         }
     }
-
-    /// A call ran past its deadline. The second in a row pauses the model for a minute, so the rest of the
-    /// queue waits for it instead of each item spending the full deadline to fail.
-    private func timedOut() -> AppleModelError {
-        timeoutsInARow += 1
-        if timeoutsInARow >= 2 {
-            timeoutsInARow = 0
-            pauseAppleModel()
-        }
-        return .timedOut
-    }
 }
 
-/// Thrown by `withDeadline` when the work doesn't finish in time.
+/// Thrown by `withDeadline` when the work goes quiet for too long.
 struct ModelTimeout: Error {}
 
-/// Runs `work`, giving up after `limit`. On timeout the work is cancelled and left behind: a system call that
-/// ignores cancellation finishes (or stays hung) on its own, without holding the caller. Structured task groups
-/// can't do this, because they wait for every child to end before returning.
-func withDeadline<T: Sendable>(_ limit: Duration, _ work: @escaping @Sendable () async throws -> T) async throws -> T {
+/// Runs `work`, giving up once `limit` passes with no sign of progress. `work` is handed a closure to call each
+/// time something arrives (a token, a partial result); every call starts the clock again, so slow work that is
+/// still moving is left to finish and only silence counts as a hang. On timeout the work is cancelled and left
+/// behind: a system call that ignores cancellation finishes (or stays hung) on its own, without holding the
+/// caller. Structured task groups can't do this, because they wait for every child to end before returning.
+func withDeadline<T: Sendable>(
+    _ limit: Duration,
+    _ work: @escaping @Sendable (_ stillWorking: @escaping @Sendable () -> Void) async throws -> T
+) async throws -> T {
     let race = DeadlineRace<T>()
     return try await withTaskCancellationHandler {
         try await withCheckedThrowingContinuation { continuation in
@@ -139,29 +147,53 @@ private final class DeadlineRace<T: Sendable>: @unchecked Sendable {
     private var continuation: CheckedContinuation<T, Error>?
     private var work: Task<Void, Never>?
     private var timer: Task<Void, Never>?
+    /// When the work last reported progress; the deadline is measured from here.
+    private var lastProgress = ContinuousClock.now
 
-    func start(_ continuation: CheckedContinuation<T, Error>, limit: Duration, work: @escaping @Sendable () async throws -> T) {
+    func start(
+        _ continuation: CheckedContinuation<T, Error>, limit: Duration,
+        work: @escaping @Sendable (_ stillWorking: @escaping @Sendable () -> Void) async throws -> T
+    ) {
         guard !Task.isCancelled else {
             continuation.resume(throwing: CancellationError())
             return
         }
         lock.lock()
         self.continuation = continuation
+        self.lastProgress = .now
         lock.unlock()
         let job = Task {
             let result: Result<T, Error>
-            do { result = .success(try await work()) } catch { result = .failure(error) }
+            do { result = .success(try await work { self.progressed() }) } catch { result = .failure(error) }
             self.finish(result)
         }
         let clock = Task {
-            try? await Task.sleep(for: limit)
-            guard !Task.isCancelled else { return }
-            self.finish(.failure(ModelTimeout()))
+            // Sleep until the deadline as it stood; if progress moved it meanwhile, sleep again until the new one.
+            while !Task.isCancelled {
+                let deadline = self.deadline(limit)
+                if deadline <= .now {
+                    self.finish(.failure(ModelTimeout()))
+                    return
+                }
+                try? await Task.sleep(until: deadline, clock: .continuous)
+            }
         }
         lock.lock()
         self.work = job
         self.timer = clock
         lock.unlock()
+    }
+
+    private func progressed() {
+        lock.lock()
+        lastProgress = .now
+        lock.unlock()
+    }
+
+    private func deadline(_ limit: Duration) -> ContinuousClock.Instant {
+        lock.lock()
+        defer { lock.unlock() }
+        return lastProgress + limit
     }
 
     func finish(_ result: Result<T, Error>) {

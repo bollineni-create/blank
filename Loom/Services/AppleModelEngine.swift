@@ -105,17 +105,31 @@ enum AppleModelEngine {
         throw LLMError.notReady
     }
 
-    /// Guided generation: the model fills a title, summary, takeaways and tags directly.
-    static func organize(_ prompt: String, instructions: String) async throws -> OrganizedFields {
+    /// Guided generation: the model fills a title, summary, takeaways and tags directly. The fields stream in
+    /// as they're written, and `onProgress` is called for each piece, so a caller can tell a slow answer that is
+    /// still coming from one that has stopped.
+    static func organize(
+        _ prompt: String, instructions: String, onProgress: (@Sendable () -> Void)? = nil
+    ) async throws -> OrganizedFields {
         #if canImport(FoundationModels)
         if #available(iOS 26.0, macOS 26.0, *) {
             let session = LanguageModelSession(instructions: instructions)
             do {
-                let response = try await session.respond(
+                let stream = session.streamResponse(
                     to: prompt, generating: GeneratedOrganization.self,
                     options: GenerationOptions(temperature: 0.2))
-                let g = response.content
-                return OrganizedFields(title: g.title, summary: g.summary, takeaways: g.takeaways, tags: g.tags)
+                // The last snapshot is the whole answer; earlier ones have some fields still empty.
+                var latest: GeneratedOrganization.PartiallyGenerated?
+                for try await snapshot in stream {
+                    try Task.checkCancellation()
+                    latest = snapshot.content
+                    onProgress?()
+                }
+                guard let g = latest else { throw AppleModelError.notResponding }
+                return OrganizedFields(title: g.title ?? "", summary: g.summary ?? "",
+                                       takeaways: g.takeaways ?? [], tags: g.tags ?? [])
+            } catch let error as AppleModelError {
+                throw error
             } catch let error as LanguageModelSession.GenerationError {
                 throw AppleModelError(error)
             } catch is CancellationError {
@@ -134,8 +148,10 @@ struct AppleModelError: LocalizedError {
     let message: String
     /// The model itself isn't working right now (not a problem with this prompt): pause it and wait.
     var isRuntimeFailure = false
-    /// The call ran past its deadline (see `LLMService.organizeTimeout`).
+    /// The model went quiet for too long (see `LLMService.stallTimeout`).
     var isTimeout = false
+    /// The prompt was too long for the model's context window; a shorter one may work.
+    var isTooLong = false
 
     init(message: String, isRuntimeFailure: Bool, isTimeout: Bool = false) {
         self.message = message
@@ -155,6 +171,7 @@ struct AppleModelError: LocalizedError {
         switch error {
         case .exceededContextWindowSize:
             message = "That was too much text for Apple Intelligence at once. Try a shorter question."
+            isTooLong = true
         case .guardrailViolation:
             message = "Apple Intelligence couldn't answer that one."
         case .unsupportedLanguageOrLocale:

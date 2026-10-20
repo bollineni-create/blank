@@ -36,6 +36,9 @@ final class LoomServices {
     func start() {
         guard librarian.context == nil else { return }
         librarian.context = container.mainContext
+        // When the model comes back (after being paused, or getting ready), the queue picks up where it stopped.
+        // Wired here rather than to a view, so it still happens with every window closed.
+        llm.becameReady = { [librarian] in librarian.modelBecameReady() }
         // Copies the last run never finished are dropped; adds it never finished are picked up where they stopped.
         AttachmentStore.clearStaging()
         librarian.resumeInterruptedAdds()
@@ -81,9 +84,6 @@ struct LoomApp: App {
                 .environment(router)
                 .environment(sync)
                 .onAppear { LoomServices.shared.start() }
-                .onChange(of: llm.isReady) { _, ready in
-                    if ready { librarian.modelBecameReady() }
-                }
                 .onChange(of: scenePhase) { _, phase in
                     if phase == .active { llm.refreshAppleAvailability() }
                 }

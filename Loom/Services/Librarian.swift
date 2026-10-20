@@ -70,6 +70,8 @@ final class Librarian {
     private var organizing: (id: UUID, task: Task<Void, Never>)?
     /// Cancelled items, so late stage updates don't bring them back into the list.
     private var cancelledIDs: Set<UUID> = []
+    /// Items the model went quiet on once; they were put back in line, and a second time is marked failed.
+    private var stalledOnce: Set<UUID> = []
     /// Files whose copy failed before they joined the library: how to try again, and how to let go.
     private struct FailedAdd {
         let again: () -> Void
@@ -679,6 +681,7 @@ final class Librarian {
     }
 
     func reorganize(_ item: Item) {
+        stalledOnce.remove(item.id)
         item.aiStatus = .pending
         setStage(item, llm.isReady ? .queued : .waitingForModel)
         try? context?.save()
@@ -877,11 +880,9 @@ final class Librarian {
         let existing = topTags(limit: 30).joined(separator: ", ")
         do {
             // Guided generation fills fixed fields, so there's no JSON to parse.
-            let fields = try await llm.organizeWithAppleModel(
-                Self.applePrompt(kind: item.kind, text: text, existingTags: existing),
-                instructions: "You are a precise librarian for a private personal knowledge library.")
+            let (fields, read) = try await organizedFields(for: text, kind: item.kind, existingTags: existing)
             let parsed = Organized(title: fields.title, summary: fields.summary, takeaways: fields.takeaways,
-                                   tags: Self.relevantTags(fields.tags, existing: existing, content: text))
+                                   tags: Self.relevantTags(fields.tags, existing: existing, content: read))
             // Keep titles the user (or the web page) gave, except bare hostnames and empty ones.
             if let title = parsed.title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty,
                item.title.isEmpty || item.title == item.url?.host() {
@@ -903,6 +904,7 @@ final class Librarian {
                 item.fullText + "\n" + item.summary + "\n" + item.takeaways.joined(separator: "\n") + "\n" + item.tags.joined(separator: " "))
             item.aiVersion = Self.aiVersion
             item.aiStatus = .done
+            stalledOnce.remove(item.id)
             setStage(item, .done, create: false)
         } catch where Task.isCancelled || error is CancellationError {
             // Cancelled from the activity list: keep what the item had and don't summarize it.
@@ -913,9 +915,17 @@ final class Librarian {
             item.aiStatus = .pending
             setStage(item, .waitingForModel, create: false)
         } catch let error as AppleModelError where error.isTimeout {
-            // The model never answered. Mark this one (Retry runs it again) so the rest of the queue moves on.
-            item.aiStatus = .failed
-            setStage(item, .failed("Apple Intelligence didn't answer in time; try again"), create: false)
+            // The model went quiet on this item, and is paused for a minute (see LLMService). The first time, the
+            // item goes back in line for when the model returns, so one hiccup doesn't leave a row of items to
+            // retry by hand; if it hangs on the same item again, that one is marked failed and Retry runs it.
+            if stalledOnce.insert(item.id).inserted {
+                item.aiStatus = .pending
+                setStage(item, .waitingForModel, create: false)
+            } else {
+                stalledOnce.remove(item.id)
+                item.aiStatus = .failed
+                setStage(item, .failed("Apple Intelligence didn't answer in time; try again"), create: false)
+            }
         } catch {
             item.aiStatus = .failed
             setStage(item, .failed("Couldn't summarize; try Regenerate"), create: false)
@@ -925,6 +935,27 @@ final class Librarian {
 
     /// Roughly how much text we feed the model per item.
     private var llmInputBudget: Int { llm.inputBudgetCharacters }
+
+    /// Asks the model for an item's fields, and returns them with the text it actually read. The character
+    /// budget is a guess at the model's small context window: code, scanned text and other scripts take more
+    /// tokens per character, and a prompt the model turns away for its length is halved and sent again (twice)
+    /// instead of failing the item.
+    private func organizedFields(for text: String, kind: ItemKind, existingTags: String) async throws
+        -> (fields: OrganizedFields, read: String) {
+        var text = text
+        var shrinks = 0
+        while true {
+            do {
+                let fields = try await llm.organizeWithAppleModel(
+                    Self.applePrompt(kind: kind, text: text, existingTags: existingTags),
+                    instructions: "You are a precise librarian for a private personal knowledge library.")
+                return (fields, text)
+            } catch let error as AppleModelError where error.isTooLong && shrinks < 2 {
+                shrinks += 1
+                text = String(text.prefix(text.count / 2))
+            }
+        }
+    }
 
     private static func applePrompt(kind: ItemKind, text: String, existingTags: String) -> String {
         """
