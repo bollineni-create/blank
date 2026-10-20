@@ -753,12 +753,24 @@ final class Librarian {
 
     /// Organizes every item still waiting for the AI. Safe to call often.
     func runQueue() {
-        guard !queueRunning, autoOrganize, llm.isReady, let context else { return }
+        guard autoOrganize, llm.isReady, let context else { return }
+        guard !queueRunning else {
+            // Already working through the queue; it picks up anything new on its next pass. Keep the count
+            // honest meanwhile, so the tray says what's ahead of a newly queued item.
+            refreshProcessingCount()
+            return
+        }
         queueRunning = true
         Task {
             defer {
                 queueRunning = false
+                organizing = nil
                 processingCount = 0
+                if !llm.isReady {
+                    // The model went away mid-queue. Say so, instead of leaving items at "Queued for summary…"
+                    // with nothing working on them; `modelBecameReady` queues them again.
+                    for i in activities.indices where activities[i].stage == .queued { activities[i].stage = .waitingForModel }
+                }
                 backfillAttachmentsForSync()
             }
             while llm.isReady {
@@ -767,15 +779,23 @@ final class Librarian {
                     predicate: #Predicate { $0.aiStatusRaw == pending },
                     sortBy: [SortDescriptor(\.createdAt, order: .reverse)])
                 descriptor.fetchLimit = 1
-                let count = (try? context.fetchCount(FetchDescriptor<Item>(predicate: #Predicate { $0.aiStatusRaw == pending }))) ?? 0
-                processingCount = count
                 guard let item = try? context.fetch(descriptor).first else { break }
+                // Claimed before the work starts, so the count below doesn't see it as still waiting.
+                item.aiStatus = .processing
                 let work = Task { await organize(item) }
                 organizing = (item.id, work)
+                refreshProcessingCount()
                 await work.value
                 organizing = nil
             }
         }
+    }
+
+    /// How many items the AI still has to do: the one it's on, plus everything waiting.
+    private func refreshProcessingCount() {
+        let pending = AIStatus.pending.rawValue
+        let waiting = (try? context?.fetchCount(FetchDescriptor<Item>(predicate: #Predicate { $0.aiStatusRaw == pending }))) ?? 0
+        processingCount = waiting + (organizing == nil ? 0 : 1)
     }
 
     /// Bump when the organizing prompt changes; items made with older versions are redone.
@@ -849,6 +869,10 @@ final class Librarian {
             // The model stopped responding: wait for it instead of failing the item.
             item.aiStatus = .pending
             setStage(item, .waitingForModel, create: false)
+        } catch let error as AppleModelError where error.isTimeout {
+            // The model never answered. Mark this one (Retry runs it again) so the rest of the queue moves on.
+            item.aiStatus = .failed
+            setStage(item, .failed("Apple Intelligence didn't answer in time; try again"), create: false)
         } catch {
             item.aiStatus = .failed
             setStage(item, .failed("Couldn't summarize; try Regenerate"), create: false)
