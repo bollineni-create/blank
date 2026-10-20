@@ -244,9 +244,10 @@ final class Librarian {
     private static let addGracePeriod: TimeInterval = 60 * 60
 
     /// Every broken file: status-list entries whose copy failed, items whose file is missing from this device
-    /// and from iCloud, and items that hang off nothing on the map (no tags, no space). Nothing still being
-    /// added, waiting for the AI or being organized counts, and with `syncing` on, neither does an item another
-    /// device started adding within the last hour (its file arrives when that device finishes).
+    /// and from iCloud, and items that hang off nothing on the map (no tags, no space). Nothing being added or
+    /// organized right now counts, nor an item added within the last hour that's still waiting for the AI, and
+    /// with `syncing` on, neither does an item another device started adding within the last hour (its file
+    /// arrives when that device finishes).
     func brokenFiles(syncing: Bool) -> [BrokenFile] {
         var broken: [BrokenFile] = []
         for activity in activities where activity.stage.isFailed && failedAdds[activity.id] != nil {
@@ -258,6 +259,11 @@ final class Librarian {
         }
         func stillArriving(_ item: Item) -> Bool {
             (item.aiStatus == .importing || item.aiStatus == .processing) && item.createdAt > recent
+        }
+        /// Waiting its turn with the AI, or mid-way through on another device. Only for an hour: an item marked
+        /// waiting or working longer than that, with nothing on this device working on it, is stuck.
+        func onItsWay(_ item: Item) -> Bool {
+            [.importing, .processing, .pending].contains(item.aiStatus) && item.createdAt > recent
         }
 
         // An item with a copy for iCloud can't be missing its file: the file is written from that copy on first use.
@@ -277,7 +283,7 @@ final class Librarian {
         for item in items where !found.contains(item.id) {
             guard item.tags.isEmpty, item.space == nil else { continue }
             // Still on its way through: it may yet get tags.
-            if inProgress(item) || item.aiStatus == .importing || item.aiStatus == .processing || item.aiStatus == .pending { continue }
+            if inProgress(item) || onItsWay(item) { continue }
             broken.append(BrokenFile(id: item.id, reason: .loose, kind: item.kind, title: item.displayTitle))
         }
         return broken
