@@ -39,8 +39,13 @@ enum SearchIndex {
     }
 
     static func unpack(_ data: Data?) -> [Float]? {
-        guard let data, !data.isEmpty else { return nil }
-        return data.withUnsafeBytes { Array($0.bindMemory(to: Float.self)) }
+        guard let data, data.count >= MemoryLayout<Float>.size else { return nil }
+        // Copied out rather than viewed in place: bytes from the store aren't promised to be Float-aligned.
+        let count = data.count / MemoryLayout<Float>.size
+        return [Float](unsafeUninitializedCapacity: count) { buffer, filled in
+            data.copyBytes(to: buffer, count: count * MemoryLayout<Float>.size)
+            filled = count
+        }
     }
 
     static func cosine(_ a: [Float], _ b: [Float]) -> Float {

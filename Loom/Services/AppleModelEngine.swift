@@ -72,13 +72,14 @@ enum AppleModelEngine {
     /// The Apple model's context window is small (about 4,096 tokens), so prompts are trimmed harder.
     static let inputBudgetCharacters = 6000
 
-    /// Streams a plain-text answer. `onToken` receives the whole answer so far.
+    /// Streams a plain-text answer. `onToken` receives the whole answer so far, on the main actor: the model
+    /// streams on a background thread, and the callers update SwiftUI state with each piece.
     static func generate(
         system: String,
         prompt: String,
         maxTokens: Int,
         temperature: Float,
-        onToken: ((String) -> Void)?
+        onToken: (@MainActor (String) -> Void)?
     ) async throws -> String {
         #if canImport(FoundationModels)
         if #available(iOS 26.0, macOS 26.0, *) {
@@ -89,7 +90,7 @@ enum AppleModelEngine {
                 for try await snapshot in session.streamResponse(to: prompt, options: options) {
                     try Task.checkCancellation()
                     text = snapshot.content
-                    onToken?(text)
+                    if let onToken { await onToken(text) }
                 }
             } catch let error as LanguageModelSession.GenerationError {
                 throw AppleModelError(error)
