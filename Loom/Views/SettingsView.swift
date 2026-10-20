@@ -51,12 +51,15 @@ struct SettingsView: View {
 
             Section {
                 let broken = librarian.brokenFiles(syncing: sync.hasCloudKit == true)
+                let lastAdded = librarian.lastBatchFiles
                 LabeledContent("Broken files", value: "\(broken.count)")
                 CleanUpButton(files: broken, label: "Clean up broken files…")
+                LabeledContent("Last added", value: lastAdded.isEmpty ? "Nothing to undo" : "\(lastAdded.count) \(lastAdded.count == 1 ? "file" : "files")")
+                UndoAddButton(files: lastAdded, label: "Undo last add…")
             } header: {
                 Text("Library")
             } footer: {
-                Text("A broken file is one whose copy into the library never finished, one that's in the library with no file behind it on this device or in iCloud, or one that hangs off nothing on the map: no tags and no space, like a video saved as a picture by mistake or a photo with no words in it. Clean up removes them all at once and names them first. Items being added or organized right now, or added in the last hour and still waiting for Apple Intelligence, are left alone. With auto-organize off, or while Apple Intelligence isn't available, nothing would tag an item, so untagged items aren't counted.")
+                Text("A broken file is one whose copy into the library never finished, one that's in the library with no file behind it on this device or in iCloud, or one that hangs off nothing on the map: no tags and no space, like a video saved as a picture by mistake or a photo with no words in it. Clean up removes them all at once and names them first. Items being added or organized right now, or added in the last hour and still waiting for Apple Intelligence, are left alone. With auto-organize off, or while Apple Intelligence isn't available, nothing would tag an item, so untagged items aren't counted.\n\nUndo last add takes out the files that were added together most recently (one drop, one pick, one paste), even if they're still being copied in or read. It names them first, and works once per batch, until the app is quit.")
             }
 
             Section {

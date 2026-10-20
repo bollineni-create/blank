@@ -22,6 +22,7 @@ struct RootView: View {
     @State private var pendingQuestion: String?
     @State private var showingSettings = false
     @State private var showingOnboarding = false
+    @State private var confirmingUndo = false
     @State private var isDropTargeted = false
     @FocusState private var searchFocused: Bool
 
@@ -87,6 +88,11 @@ struct RootView: View {
         .onChange(of: router.openItem) { _, _ in handleRouter() }
         .onChange(of: router.newNote) { _, _ in handleRouter() }
         .onReceive(NotificationCenter.default.publisher(for: .loomOpenSettings)) { _ in showingSettings = true }
+        // Edit → Undo Last Add on the Mac: the same dialog as the Undo button in the status panel.
+        .onReceive(NotificationCenter.default.publisher(for: .loomUndoLastAdd)) { _ in
+            if !librarian.lastBatchFiles.isEmpty { confirmingUndo = true }
+        }
+        .undoAddDialog(isPresented: $confirmingUndo)
         .onDrop(of: [.fileURL, .url, .movie, .image, .plainText], isTargeted: $isDropTargeted) { providers in
             DropImporter.importProviders(providers, into: librarian)
             return !providers.isEmpty

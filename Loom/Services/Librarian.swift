@@ -82,6 +82,98 @@ final class Librarian {
     /// Asked to copy files again while a copy was running.
     private var backfillAgain = false
 
+    // MARK: Undoing the last batch
+
+    /// One thing that was added, as the undo dialog names it.
+    struct AddedFile: Identifiable, Equatable {
+        let id: UUID
+        var title: String
+        let kind: ItemKind
+    }
+
+    /// The files that were added together most recently: one drop, one pick from Files or Photos, one paste,
+    /// one note. Undo takes them all out again.
+    struct AddBatch: Equatable {
+        /// Tells batches apart; a file waiting on a conflict answer keeps the number of the batch it came in with.
+        let serial: Int
+        var files: [AddedFile]
+        let startedAt: Date
+        /// Files already in the library that this batch took the place of. Undo can't bring them back.
+        var replaced = 0
+    }
+
+    /// The batch undo would take out, or nil once it has been undone. Files removed since (cancelled, deleted,
+    /// cleaned up) are left out by `lastBatchFiles`.
+    private(set) var lastBatch: AddBatch?
+    private var batchSerial = 0
+    /// When a batch was last added to or reserved for, so adds that come in quick succession stay together.
+    private var batchTouchedAt = Date.distantPast
+    /// Holds (`beginAddBatch`) open right now: adds made under a hold are one batch however long they take.
+    private var batchHolds = 0
+    /// Adds made without a hold this close together are one batch: a Shortcut saving several files, say.
+    private static let batchWindow: TimeInterval = 2
+
+    /// What undo would take out: the last batch's files that are still around, with their current names.
+    var lastBatchFiles: [AddedFile] {
+        guard let batch = lastBatch, !batch.files.isEmpty else { return [] }
+        let ids = batch.files.map(\.id)
+        let items = (try? context?.fetch(FetchDescriptor<Item>(predicate: #Predicate { ids.contains($0.id) }))) ?? []
+        let byID = Dictionary(items.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        return batch.files.compactMap { file in
+            if cancelledIDs.contains(file.id) { return nil }
+            // Still copying in (not in the library yet), or in the status list after a failed copy.
+            if addTasks[file.id] != nil || failedAdds[file.id] != nil { return file }
+            guard let item = byID[file.id] else { return nil }
+            var fresh = file
+            fresh.title = item.displayTitle
+            return fresh
+        }
+    }
+
+    /// Keeps every add made until the matching `endAddBatch` in one batch, however long the files take to
+    /// arrive (a drop hands files over one callback at a time; Photos exports videos one by one). Opening the
+    /// first hold starts a new batch: one drop is one batch, even right after another.
+    func beginAddBatch() {
+        if batchHolds == 0 { batchSerial += 1 }
+        batchHolds += 1
+        batchTouchedAt = .now
+    }
+
+    func endAddBatch() {
+        batchHolds = max(0, batchHolds - 1)
+    }
+
+    /// The batch an add made right now joins. Without a hold, a quiet spell of `batchWindow` starts a new one.
+    private func currentBatch() -> Int {
+        let now = Date.now
+        if batchHolds == 0, now.timeIntervalSince(batchTouchedAt) >= Self.batchWindow { batchSerial += 1 }
+        batchTouchedAt = now
+        return batchSerial
+    }
+
+    /// Records an add in its batch. A batch older than the last one is folded into the last one: what matters
+    /// is that this is the most recent add, so undo covers it.
+    private func joinBatch(_ item: Item, title: String? = nil, serial: Int? = nil) {
+        let serial = serial ?? currentBatch()
+        let file = AddedFile(id: item.id, title: title ?? item.displayTitle, kind: item.kind)
+        if var batch = lastBatch, serial <= batch.serial {
+            batch.files.append(file)
+            lastBatch = batch
+        } else {
+            lastBatch = AddBatch(serial: serial, files: [file], startedAt: .now)
+        }
+        batchTouchedAt = .now
+    }
+
+    /// Takes the most recently added batch out of the library and the status list: files still copying in or
+    /// being read are stopped and dropped, and finished ones are deleted. One-shot: there's nothing to undo
+    /// afterwards until something else is added.
+    func undoLastBatch() {
+        guard let batch = lastBatch else { return }
+        lastBatch = nil
+        for file in batch.files.reversed() { remove(file.id) }
+    }
+
     // MARK: Upload activity (what the uploads tray shows)
 
     enum Stage: Equatable {
@@ -318,6 +410,7 @@ final class Librarian {
     func addNote(_ text: String, title: String = "", space: Space? = nil) -> Item {
         let item = Item(kind: .note, title: title, body: text, space: space)
         item.aiStatus = .importing
+        joinBatch(item)
         insert(item)
         addTasks[item.id] = Task {
             if discardIfCancelled(item) { return }
@@ -340,6 +433,7 @@ final class Librarian {
     func addLink(_ url: URL, comment: String = "", space: Space? = nil) -> Item {
         let item = Item(kind: .link, title: url.host() ?? url.absoluteString, body: comment, urlString: url.absoluteString, space: space)
         item.aiStatus = .importing
+        joinBatch(item)
         insert(item)
         addTasks[item.id] = Task {
             await fetchPage(for: item)
@@ -368,6 +462,7 @@ final class Librarian {
 
     func addImage(_ data: Data, fileExtension: String = "jpg", space: Space? = nil) {
         let item = Item(kind: .image, space: space)
+        joinBatch(item, title: "Image")
         importAttachment(into: item, named: "Image") { try AttachmentStore.save(data, fileExtension: fileExtension) }
     }
 
@@ -386,15 +481,17 @@ final class Librarian {
     /// A file with the same name as one already in the library is handled per `onConflict`.
     func addFile(_ url: URL, space: Space? = nil, removeSourceWhenDone: Bool = false, onConflict: ConflictPolicy = .ask) {
         let fileName = url.lastPathComponent
+        // Decided now, so a file that waits on the conflict question still belongs with what it came in with.
+        let batch = currentBatch()
         let matches = onConflict == .keepBoth ? [] : existingCopies(named: fileName)
         guard !matches.isEmpty, onConflict == .ask else {
-            startFile(url, space: space, removeSourceWhenDone: removeSourceWhenDone, replacing: matches)
+            startFile(url, space: space, removeSourceWhenDone: removeSourceWhenDone, replacing: matches, batch: batch)
             return
         }
         ask(Conflict(fileName: fileName, matches: matches) { [weak self] replace in
             guard let self else { return }
             if replace {
-                startFile(url, space: space, removeSourceWhenDone: removeSourceWhenDone, replacing: matches)
+                startFile(url, space: space, removeSourceWhenDone: removeSourceWhenDone, replacing: matches, batch: batch)
             } else if removeSourceWhenDone {
                 AttachmentStore.removeTemporary(url)
             }
@@ -403,7 +500,7 @@ final class Librarian {
 
     /// Adds a file, taking the place of `replacing` (copies of it already in the library) once its copy is whole.
     /// The new item keeps the old one's space, tags and favorite, so a replaced file stays where it was.
-    private func startFile(_ url: URL, space: Space?, removeSourceWhenDone: Bool, replacing: [ExistingCopy]) {
+    private func startFile(_ url: URL, space: Space?, removeSourceWhenDone: Bool, replacing: [ExistingCopy], batch: Int) {
         let type = UTType(filenameExtension: url.pathExtension) ?? .data
         let kind: ItemKind = type.conforms(to: .pdf) ? .pdf
             : type.conforms(to: .image) ? .image
@@ -416,6 +513,7 @@ final class Librarian {
             item.tags = old.tags
             item.isFavorite = old.isFavorite
         }
+        joinBatch(item, title: url.lastPathComponent, serial: batch)
         importAttachment(into: item, named: url.lastPathComponent, removeSource: removeSourceWhenDone ? url : nil,
                          replacing: replacing.map(\.id)) {
             try AttachmentStore.importFile(at: url)
@@ -459,7 +557,10 @@ final class Librarian {
                 return
             }
             if let removeSource { AttachmentStore.removeTemporary(removeSource) }
-            for id in replacing { removeReplaced(id) }
+            for id in replacing { remove(id) }
+            if !replacing.isEmpty, lastBatch?.files.contains(where: { $0.id == item.id }) == true {
+                lastBatch?.replaced += replacing.count
+            }
             item.attachmentName = name
             insert(item)
             await readAttachment(item)
@@ -502,8 +603,9 @@ final class Librarian {
         return copies
     }
 
-    /// Takes a copy out of the library (and the tray) because a new copy of the same file has come in.
-    private func removeReplaced(_ id: UUID) {
+    /// Takes an item out of the library and the tray whatever state it's in: still copying in, waiting on or
+    /// with the AI, failed, or done. For a copy a new copy of the same file is taking the place of, and for undo.
+    private func remove(_ id: UUID) {
         activities.removeAll { $0.id == id }
         failedAdds.removeValue(forKey: id)?.cleanUp()
         if let task = addTasks[id] {

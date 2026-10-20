@@ -97,6 +97,7 @@ struct ActivityPanel: View {
         let working = activities.filter { !$0.stage.isFinished }.count
         let background = max(0, librarian.processingCount - working)
         let broken = librarian.brokenFiles(syncing: sync.hasCloudKit == true)
+        let lastAdded = librarian.lastBatchFiles
         // Broken files that have no row in the list still need attention.
         let listed = Set(activities.map(\.id))
         let unlisted = broken.filter { !listed.contains($0.id) }.count
@@ -167,11 +168,27 @@ struct ActivityPanel: View {
                 .buttonStyle(.plain)
                 .padding(Theme.Space.s12)
             }
+
+            if !lastAdded.isEmpty {
+                Rectangle().fill(Theme.hairline).frame(height: 1)
+                HStack(spacing: Theme.Space.s8) {
+                    Image(systemName: "arrow.uturn.backward.circle.fill").foregroundStyle(Theme.labelSecondary)
+                    Text("Last added: \(lastAdded.count) \(lastAdded.count == 1 ? "file" : "files")")
+                        .foregroundStyle(Theme.label)
+                    Spacer(minLength: 0)
+                    UndoAddButton(files: lastAdded)
+                        .foregroundStyle(Theme.accentInk)
+                }
+                .font(.callout.weight(.medium))
+                .buttonStyle(.plain)
+                .padding(Theme.Space.s12)
+            }
         }
         .frame(width: 320)
         .background(Theme.surface)
         .animation(.snappy, value: activities)
         .animation(.snappy, value: broken)
+        .animation(.snappy, value: lastAdded)
     }
 
     private func row(_ activity: Librarian.Activity) -> some View {
@@ -310,7 +327,7 @@ struct CleanUpButton: View {
             parts.append("\(loose.count) \(loose.count == 1 ? "hangs" : "hang") off nothing on the map, with no tags and no space (\(Self.kinds(of: loose)))")
         }
         var text = parts.joined(separator: "; ") + ". "
-        text += "Going: " + Self.names(of: files) + ". "
+        text += "Going: " + FileWords.names(files.map(\.title)) + ". "
         text += "They're taken out of the library and the status list."
         if missing > 0, sync.hasCloudKit == true {
             text += " A file that was saved on another device is removed there too. To keep it, open Settings on that device and tap Send everything on this device to iCloud first; its file then fills in here."
@@ -318,17 +335,86 @@ struct CleanUpButton: View {
         return text
     }
 
+    private static func kinds(of files: [Librarian.BrokenFile]) -> String {
+        FileWords.kinds(files.map { $0.kind ?? .file })
+    }
+}
+
+/// One button that undoes the most recent batch of adds, after a dialog names what's going. In the status
+/// panel and in Settings; the Mac's Edit menu opens the same dialog. `files` is what `Librarian.lastBatchFiles`
+/// holds, so what the dialog counts is what's removed.
+struct UndoAddButton: View {
+    var files: [Librarian.AddedFile]
+    var label = "Undo…"
+    @State private var confirming = false
+
+    var body: some View {
+        Button(label) { confirming = true }
+            .disabled(files.isEmpty)
+            .help("Take the files added together most recently out of the library")
+            .undoAddDialog(isPresented: $confirming)
+    }
+}
+
+extension View {
+    /// The confirmation that undoes the most recent batch of adds, over whatever presents it.
+    func undoAddDialog(isPresented: Binding<Bool>) -> some View {
+        modifier(UndoAddDialog(isPresented: isPresented))
+    }
+}
+
+/// Names the last batch's files and, on Remove, takes them out. Reads the batch itself, so it says what undo
+/// would do at the moment it opens, whichever view asked for it.
+private struct UndoAddDialog: ViewModifier {
+    @Environment(Librarian.self) private var librarian
+    @Environment(SyncMonitor.self) private var sync
+    @Binding var isPresented: Bool
+
+    func body(content: Content) -> some View {
+        let files = librarian.lastBatchFiles
+        let count = files.count
+        content.confirmationDialog("Undo adding \(count) \(count == 1 ? "file" : "files")?",
+                                   isPresented: $isPresented, titleVisibility: .visible) {
+            Button("Remove \(count) \(count == 1 ? "File" : "Files")", role: .destructive) {
+                withAnimation(Theme.motion) { librarian.undoLastBatch() }
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text(message(files))
+        }
+    }
+
+    private func message(_ files: [Librarian.AddedFile]) -> String {
+        guard !files.isEmpty else { return "Nothing was added recently." }
+        var text = "Added"
+        if let started = librarian.lastBatch?.startedAt {
+            text += " " + started.formatted(.relative(presentation: .named))
+        }
+        text += ": " + FileWords.names(files.map(\.title)) + " (" + FileWords.kinds(files.map(\.kind)) + "). "
+        text += "They're taken out of the library and the status list, and any still being added are stopped."
+        if let replaced = librarian.lastBatch?.replaced, replaced > 0 {
+            text += " The \(replaced == 1 ? "file they replaced isn't" : "\(replaced) files they replaced aren't") brought back."
+        }
+        if sync.hasCloudKit == true {
+            text += " A file that already reached your other devices is removed there too."
+        }
+        return text
+    }
+}
+
+/// Words for lists of files in the dialogs that ask before removing them.
+private enum FileWords {
     /// The first few names, then how many more.
-    private static func names(of files: [Librarian.BrokenFile]) -> String {
-        let shown = files.prefix(5).map { "“\($0.title)”" }
-        let rest = files.count - shown.count
+    static func names(_ titles: [String]) -> String {
+        let shown = titles.prefix(5).map { "“\($0)”" }
+        let rest = titles.count - shown.count
         return shown.joined(separator: ", ") + (rest > 0 ? " and \(rest) more" : "")
     }
 
     /// "3 images, 1 PDF and 2 files", most numerous first.
-    private static func kinds(of files: [Librarian.BrokenFile]) -> String {
+    static func kinds(_ kinds: [ItemKind]) -> String {
         var counts: [ItemKind: Int] = [:]
-        for file in files { counts[file.kind ?? .file, default: 0] += 1 }
+        for kind in kinds { counts[kind, default: 0] += 1 }
         let words = counts.sorted { $0.value == $1.value ? $0.key.rawValue < $1.key.rawValue : $0.value > $1.value }
             .map { kind, n -> String in
                 let plural = kind == .pdf ? "PDFs" : kind.label.lowercased()

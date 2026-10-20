@@ -30,14 +30,21 @@ struct CaptureButton: View {
         .sheet(isPresented: $showingNote) { NoteEditorSheet() }
         .sheet(isPresented: $showingLink) { AddLinkSheet() }
         .fileImporter(isPresented: $showingFiles, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
-            if case .success(let urls) = result { urls.forEach { librarian.addFile($0) } }
+            // One pick is one batch, so Undo takes the whole pick out again.
+            guard case .success(let urls) = result else { return }
+            librarian.beginAddBatch()
+            urls.forEach { librarian.addFile($0) }
+            librarian.endAddBatch()
         }
         .photosPicker(isPresented: $showingPhotos, selection: $photoSelection, maxSelectionCount: 20,
                       matching: .any(of: [.images, .videos]))
         .onChange(of: photoSelection) { _, picked in
             guard !picked.isEmpty else { return }
             Task {
+                // Held open while the videos export one by one, so they stay one batch for Undo.
+                librarian.beginAddBatch()
                 for p in picked { await add(p) }
+                librarian.endAddBatch()
                 photoSelection = []
             }
         }
@@ -180,37 +187,51 @@ extension Image {
 /// Handles anything dropped on the main page: Finder files, web links, and photos,
 /// videos or text dragged out of other apps.
 enum DropImporter {
+    /// One drop is one batch for Undo: the files come in one callback at a time, so the batch is held open
+    /// for each provider until its callback has added (or given up on) what it carried.
     @MainActor
     static func importProviders(_ providers: [NSItemProvider], into librarian: Librarian) {
         for provider in providers {
             if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier)
                 || provider.hasItemConformingToTypeIdentifier(UTType.url.identifier) {
+                librarian.beginAddBatch()
                 _ = provider.loadObject(ofClass: URL.self) { url, _ in
-                    guard let url else { return }
                     // Copy dropped files right away: the system may revoke access after this callback.
-                    let local = url.isFileURL ? copyToTemporary(url) : nil
+                    let local = url.flatMap { $0.isFileURL ? copyToTemporary($0) : nil }
                     Task { @MainActor in
+                        defer { librarian.endAddBatch() }
                         if let local {
                             librarian.addFile(local, removeSourceWhenDone: true)
-                        } else if !url.isFileURL {
+                        } else if let url, !url.isFileURL {
                             librarian.addLink(url)
                         }
                     }
                 }
             } else if provider.hasItemConformingToTypeIdentifier(UTType.movie.identifier) {
+                librarian.beginAddBatch()
                 provider.loadFileRepresentation(forTypeIdentifier: UTType.movie.identifier) { url, _ in
-                    guard let url, let local = copyToTemporary(url) else { return }
-                    Task { @MainActor in librarian.addFile(local, removeSourceWhenDone: true) }
+                    let local = url.flatMap(copyToTemporary)
+                    Task { @MainActor in
+                        defer { librarian.endAddBatch() }
+                        if let local { librarian.addFile(local, removeSourceWhenDone: true) }
+                    }
                 }
             } else if provider.hasItemConformingToTypeIdentifier(UTType.image.identifier) {
+                librarian.beginAddBatch()
                 provider.loadDataRepresentation(forTypeIdentifier: UTType.image.identifier) { data, _ in
-                    guard let data, let jpeg = ContentExtractor.thumbnail(from: data, maxPixel: 4000) else { return }
-                    Task { @MainActor in librarian.addImage(jpeg) }
+                    let jpeg = data.flatMap { ContentExtractor.thumbnail(from: $0, maxPixel: 4000) }
+                    Task { @MainActor in
+                        defer { librarian.endAddBatch() }
+                        if let jpeg { librarian.addImage(jpeg) }
+                    }
                 }
             } else if provider.canLoadObject(ofClass: String.self) {
+                librarian.beginAddBatch()
                 _ = provider.loadObject(ofClass: String.self) { text, _ in
-                    guard let text else { return }
-                    Task { @MainActor in librarian.addPasted(text) }
+                    Task { @MainActor in
+                        defer { librarian.endAddBatch() }
+                        if let text { librarian.addPasted(text) }
+                    }
                 }
             }
         }
