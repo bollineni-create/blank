@@ -21,6 +21,7 @@ struct RootView: View {
     @State private var question = ""
     @State private var pendingQuestion: String?
     @State private var showingSettings = false
+    @State private var showingReels = false
     @State private var showingOnboarding = false
     @State private var confirmingUndo = false
     @State private var isDropTargeted = false
@@ -88,6 +89,7 @@ struct RootView: View {
         .onChange(of: router.openItem) { _, _ in handleRouter() }
         .onChange(of: router.newNote) { _, _ in handleRouter() }
         .onReceive(NotificationCenter.default.publisher(for: .loomOpenSettings)) { _ in showingSettings = true }
+        .onReceive(NotificationCenter.default.publisher(for: .loomOpenReels)) { _ in if hasVideos { showingReels = true } }
         // Edit → Undo Last Add on the Mac: the same dialog as the Undo button in the status panel.
         .onReceive(NotificationCenter.default.publisher(for: .loomUndoLastAdd)) { _ in
             if !librarian.lastBatchFiles.isEmpty { confirmingUndo = true }
@@ -125,6 +127,12 @@ struct RootView: View {
             #endif
         }
         .sheet(isPresented: $showingOnboarding) { OnboardingView() }
+        // Reels: your videos, full screen, one at a time, in a random order.
+        #if os(iOS)
+        .fullScreenCover(isPresented: $showingReels) { reels }
+        #else
+        .sheet(isPresented: $showingReels) { reels.frame(minWidth: 480, idealWidth: 540, minHeight: 760, idealHeight: 900) }
+        #endif
         .onAppear {
             if !UserDefaults.standard.bool(forKey: OnboardingView.seenKey) { showingOnboarding = true }
             handleRouter()
@@ -151,6 +159,17 @@ struct RootView: View {
                 NotificationCenter.default.post(name: .loomNewNote, object: nil)
             }
         }
+    }
+
+    private var reels: some View {
+        ReelsView { id in
+            selectedItem = id
+            focusRequest = id
+        }
+    }
+
+    private var hasVideos: Bool {
+        items.contains { $0.kind == .video && $0.attachmentName != nil }
     }
 
     private var panelShown: Binding<Bool> {
@@ -256,6 +275,19 @@ struct RootView: View {
                     ActivityDot { id in
                         selectedItem = id
                         focusRequest = id
+                    }
+                    if hasVideos {
+                        Button { showingReels = true } label: {
+                            Image(systemName: "play.rectangle")
+                                .font(.body)
+                                .loomSymbols()
+                                .foregroundStyle(Theme.label)
+                                .frame(width: 44, height: 44)
+                                .contentShape(Theme.pillShape)
+                                .floatingChrome(Theme.pillShape)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Reels: your videos, one at a time, shuffled")
                     }
                     Button { showingSettings = true } label: {
                         Image(systemName: "gearshape")

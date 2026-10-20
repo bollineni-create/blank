@@ -16,6 +16,7 @@ Loom is a personal take on [Fabric](https://apps.apple.com/us/app/fabric-your-se
 - **Semantic search.** Search matches meaning as well as keywords. It uses Apple's built-in sentence embeddings, so it works offline even without Apple Intelligence.
 - **Ask your library.** Chat with what you've saved. Answers come from your items and cite them as `[1]`, `[2]`, and each source is a link you can tap. Chats are kept.
 - **The knowledge web.** A live map of your library: tags and spaces are concepts, your items hang off them, and the whole thing settles into shape as you save more.
+- **Reels.** The play button at the top right (and **View → Reels**, ⇧⌘R, on the Mac) shows your saved videos the way Instagram Reels and TikTok do: one fills the screen, it plays on its own and loops, and you swipe up (scroll, or press an arrow key on the Mac) for the next. The order is shuffled each time it opens, and the shuffle button deals again. Tap to pause, double-tap to favorite, and the title, summary and tags Apple Intelligence wrote sit over the bottom of the video; Details opens the video in the panel. Mute is remembered.
 - **Spaces and tags.** Folders ("Spaces"), automatic tags, favorites, and filters by type.
 - **Shortcuts and Siri.** "Save to Loom", "Ask Loom", "Search Loom", "Open Item" and "New Note" work from the Shortcuts app, Siri and Spotlight.
 - **Eleven themes.** Pick one in **Settings → Theme**: the original Loom and ten design languages (Paper & Ink, Herbarium, Observatory, Blueprint, Terrazzo, Swiss Index, Kiln, Lamplight, Riso, Mist). Each is a whole language in light and dark mode: colours, display, body and label type, corners, tile depth, icon weight, motion, and its own look for the map, from underlined words on ruled paper to stars in a night sky or frosted pills in mist. Kiln is the default.
@@ -95,7 +96,7 @@ Loom/
     AttachmentStore.swift       copies of imported files
     SyncMonitor.swift           whether iCloud sync is running, and why not
   Theme/                        design tokens and the eleven themes
-  Views/                        sidebar, library grid, item detail, Ask chat, knowledge web, settings
+  Views/                        sidebar, library grid, item detail, Reels video feed, Ask chat, knowledge web, settings
   Resources/                    icons, bundled fonts, entitlements
 project.yml                     XcodeGen spec (iOS and macOS targets)
 scripts/install-mac.sh          build and install on the Mac

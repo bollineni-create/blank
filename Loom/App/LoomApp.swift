@@ -98,6 +98,10 @@ struct LoomApp: App {
                 Button("Save Link…") { NotificationCenter.default.post(name: .loomNewLink, object: nil) }
                     .keyboardShortcut("l", modifiers: [.command, .shift])
             }
+            CommandGroup(after: .toolbar) {
+                Button("Reels") { NotificationCenter.default.post(name: .loomOpenReels, object: nil) }
+                    .keyboardShortcut("r", modifiers: [.command, .shift])
+            }
             CommandGroup(after: .undoRedo) {
                 // ⌥⌘Z, so plain ⌘Z stays the text fields' own undo.
                 Button("Undo Last Add…") { NotificationCenter.default.post(name: .loomUndoLastAdd, object: nil) }
@@ -126,4 +130,5 @@ extension Notification.Name {
     static let loomPaste = Notification.Name("loomPaste")
     static let loomOpenSettings = Notification.Name("loomOpenSettings")
     static let loomUndoLastAdd = Notification.Name("loomUndoLastAdd")
+    static let loomOpenReels = Notification.Name("loomOpenReels")
 }
