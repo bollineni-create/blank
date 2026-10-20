@@ -79,4 +79,14 @@ enum AttachmentStore {
         guard let name else { return }
         try? FileManager.default.removeItem(at: url(for: name))
     }
+
+    /// Removes every stored file but the ones named in `keep` (files still being added, which their own add
+    /// takes care of). The staging folder is left alone: copies in progress land there.
+    static func deleteAll(except keep: Set<String>) {
+        let fm = FileManager.default
+        let staging = stagingDirectory.lastPathComponent
+        for name in (try? fm.contentsOfDirectory(atPath: directory.path)) ?? [] where name != staging && !keep.contains(name) {
+            try? fm.removeItem(at: directory.appendingPathComponent(name))
+        }
+    }
 }

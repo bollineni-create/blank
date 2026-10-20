@@ -56,10 +56,11 @@ struct SettingsView: View {
                 CleanUpButton(files: broken, label: "Clean up broken files…")
                 LabeledContent("Last added", value: lastAdded.isEmpty ? "Nothing to undo" : "\(lastAdded.count) \(lastAdded.count == 1 ? "file" : "files")")
                 UndoAddButton(files: lastAdded, label: "Undo last add…")
+                EraseLibraryButton(itemCount: items.count)
             } header: {
                 Text("Library")
             } footer: {
-                Text("A broken file is one whose copy into the library never finished, one that's in the library with no file behind it on this device or in iCloud, or one that hangs off nothing on the map: no tags and no space, like a video saved as a picture by mistake or a photo with no words in it. Clean up removes them all at once and names them first. Items being added or organized right now, or added in the last hour and still waiting for Apple Intelligence, are left alone. With auto-organize off, or while Apple Intelligence isn't available, nothing would tag an item, so untagged items aren't counted.\n\nUndo last add takes out the files that were added together most recently (one drop, one pick, one paste), even if they're still being copied in or read. It names them first, and works once per batch, until the app is quit.")
+                Text("A broken file is one whose copy into the library never finished, one that's in the library with no file behind it on this device or in iCloud, or one that hangs off nothing on the map: no tags and no space, like a video saved as a picture by mistake or a photo with no words in it. Clean up removes them all at once and names them first. Items being added or organized right now, or added in the last hour and still waiting for Apple Intelligence, are left alone. With auto-organize off, or while Apple Intelligence isn't available, nothing would tag an item, so untagged items aren't counted.\n\nUndo last add takes out the files that were added together most recently (one drop, one pick, one paste), even if they're still being copied in or read. It names them first, and works once per batch, until the app is quit.\n\nErase library removes everything: every item, space and Ask conversation, and the files behind them on this device. It asks first. With iCloud sync on, your other devices empty too. Your theme and other settings are kept.")
             }
 
             Section {
@@ -117,6 +118,57 @@ struct SettingsView: View {
         case .unsupportedOS: "Needs iOS 26 or macOS 26"
         case .unavailable: "Unavailable"
         }
+    }
+}
+
+/// Empties the whole library after a dialog says what that means. Needs a second confirmation, since there's
+/// no undo and iCloud carries the deletion to every device.
+private struct EraseLibraryButton: View {
+    @Environment(Librarian.self) private var librarian
+    @Environment(SyncMonitor.self) private var sync
+    @Query private var spaces: [Space]
+    @Query private var conversations: [Conversation]
+    var itemCount: Int
+    @State private var confirming = false
+    @State private var confirmingAgain = false
+
+    var body: some View {
+        Button("Erase library…", role: .destructive) { confirming = true }
+            .disabled(itemCount == 0 && spaces.isEmpty && conversations.isEmpty)
+            .help("Remove everything from the library")
+            .confirmationDialog("Erase the whole library?", isPresented: $confirming, titleVisibility: .visible) {
+                Button("Continue…", role: .destructive) {
+                    // Let the dialog close before the alert opens, or it stays shut.
+                    Task {
+                        try? await Task.sleep(for: .milliseconds(400))
+                        confirmingAgain = true
+                    }
+                }
+                Button("Cancel", role: .cancel) { }
+            } message: {
+                Text(message)
+            }
+            .alert("Erase \(Self.count(itemCount, "item")), \(Self.count(spaces.count, "space")) and \(Self.count(conversations.count, "conversation"))?",
+                   isPresented: $confirmingAgain) {
+                Button("Erase Everything", role: .destructive) {
+                    withAnimation(Theme.motion) { librarian.eraseLibrary() }
+                }
+                Button("Cancel", role: .cancel) { }
+            } message: {
+                Text("This can't be undone.")
+            }
+    }
+
+    private static func count(_ n: Int, _ noun: String) -> String { "\(n) \(noun)\(n == 1 ? "" : "s")" }
+
+    private var message: String {
+        var text = "Every item, space and Ask conversation is removed, along with the files behind them on this device. "
+        text += "Anything still being added is stopped. There's no undo."
+        if sync.hasCloudKit == true {
+            text += " iCloud sync is on, so the library on your other devices is emptied too."
+        }
+        text += " Your theme and other settings stay as they are."
+        return text
     }
 }
 

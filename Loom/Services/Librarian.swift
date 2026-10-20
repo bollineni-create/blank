@@ -390,6 +390,68 @@ final class Librarian {
         for file in files { discard(file.id) }
     }
 
+    // MARK: Erasing the library
+
+    /// Empties the library: every item, space and conversation, and every file in Attachments on this device.
+    /// Adds still in flight are stopped, nothing stays queued for the AI, and the undo batch is forgotten.
+    /// With iCloud on, the deletions sync, so your other devices empty too. Settings (theme, auto-organize)
+    /// are kept.
+    func eraseLibrary() {
+        guard context != nil else { return }
+        // Stop the work first, so nothing being added or organized writes a row after the wipe.
+        lastBatch = nil
+        conflict = nil
+        conflictQueue.removeAll()
+        for (id, task) in addTasks {
+            // Its task removes the half-added item (and its file) at its next step, as cancelling does.
+            cancelledIDs.insert(id)
+            task.cancel()
+        }
+        for failed in failedAdds.values { failed.cleanUp() }
+        failedAdds.removeAll()
+        activities.removeAll()
+        stalledOnce.removeAll()
+        UserDefaults.standard.removeObject(forKey: "web.positions")  // Map positions of items that are gone.
+        // An item being added or organized is still written to by its task; deleting it under the task would
+        // have the task write to a deleted row. The add tasks remove theirs on cancellation; the AI step is
+        // let finish, then its item goes too.
+        let organizingTask = organizing?.task
+        organizingTask?.cancel()
+        deleteEverything(except: inFlightIDs)
+        if let organizingTask {
+            Task {
+                await organizingTask.value
+                deleteEverything(except: inFlightIDs)
+            }
+        }
+    }
+
+    /// Items a background task is still writing to.
+    private var inFlightIDs: Set<UUID> {
+        var ids = Set(addTasks.keys)
+        if let organizing { ids.insert(organizing.id) }
+        return ids
+    }
+
+    /// Deletes every item (but the ones in `keep`), space and conversation, and the files of the deleted items.
+    private func deleteEverything(except keep: Set<UUID>) {
+        guard let context else { return }
+        var keptFiles: Set<String> = []
+        for item in (try? context.fetch(FetchDescriptor<Item>())) ?? [] {
+            if keep.contains(item.id) {
+                if let name = item.attachmentName { keptFiles.insert(name) }
+                continue
+            }
+            context.delete(item)
+        }
+        for space in (try? context.fetch(FetchDescriptor<Space>())) ?? [] { context.delete(space) }
+        // Messages go with their conversation (cascade).
+        for conversation in (try? context.fetch(FetchDescriptor<Conversation>())) ?? [] { context.delete(conversation) }
+        try? context.save()
+        AttachmentStore.deleteAll(except: keptFiles)
+        refreshProcessingCount()
+    }
+
     private func fetchItem(_ id: UUID) -> Item? {
         try? context?.fetch(FetchDescriptor<Item>(predicate: #Predicate { $0.id == id })).first
     }
@@ -812,6 +874,8 @@ final class Librarian {
     }
 
     func delete(_ item: Item) {
+        // Already gone (erased while its add was being cancelled): nothing left to do.
+        guard !item.isDeleted, item.modelContext != nil else { return }
         AttachmentStore.delete(item.attachmentName)
         context?.delete(item)
         try? context?.save()
