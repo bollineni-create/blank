@@ -22,6 +22,22 @@ enum AttachmentStore {
         directory.appendingPathComponent(name)
     }
 
+    /// The name a file had before it was copied in, from its stored name (`UUID-name`).
+    /// Nil for raw saves (a pasted photo), which never had one.
+    static func originalName(of stored: String) -> String? {
+        guard let dash = stored.index(stored.startIndex, offsetBy: 36, limitedBy: stored.endIndex),
+              dash < stored.endIndex, stored[dash] == "-",
+              UUID(uuidString: String(stored[..<dash])) != nil else { return nil }
+        let name = String(stored[stored.index(after: dash)...])
+        return name.isEmpty ? nil : name
+    }
+
+    /// Whether a stored file is on disk and has something in it.
+    static func hasFile(named name: String) -> Bool {
+        let size = (try? FileManager.default.attributesOfItem(atPath: url(for: name).path))?[.size] as? Int
+        return (size ?? 0) > 0
+    }
+
     /// Copies a file in and returns its stored name. The copy is staged first, then moved into place in one step.
     static func importFile(at source: URL) throws -> String {
         let accessing = source.startAccessingSecurityScopedResource()

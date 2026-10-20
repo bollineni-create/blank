@@ -70,6 +70,20 @@ struct RootView: View {
         .onChange(of: librarian.lastAddedID) { _, id in
             if let id { focusRequest = id }
         }
+        // A file being added has the same name as one in the library: replace it, or skip the file.
+        .alert(librarian.conflict?.title ?? "", isPresented: conflictShown, presenting: librarian.conflict) { conflict in
+            let waiting = librarian.conflictsWaiting
+            Button("Replace") { librarian.resolveConflict(replace: true) }
+            if waiting > 1 {
+                Button("Replace All (\(waiting))") { librarian.resolveConflict(replace: true, all: true) }
+            }
+            Button("Skip", role: .cancel) { librarian.resolveConflict(replace: false) }
+            if waiting > 1 {
+                Button("Skip All (\(waiting))") { librarian.resolveConflict(replace: false, all: true) }
+            }
+        } message: { conflict in
+            Text(conflict.message)
+        }
         .onChange(of: router.openItem) { _, _ in handleRouter() }
         .onChange(of: router.newNote) { _, _ in handleRouter() }
         .onReceive(NotificationCenter.default.publisher(for: .loomOpenSettings)) { _ in showingSettings = true }
@@ -135,6 +149,12 @@ struct RootView: View {
 
     private var panelShown: Binding<Bool> {
         Binding(get: { panel != nil }, set: { if !$0 { panel = nil } })
+    }
+
+    /// Shown while there's a question. Only the buttons answer it (Escape presses Skip, the cancel button),
+    /// so closing is never mistaken for an answer.
+    private var conflictShown: Binding<Bool> {
+        Binding(get: { librarian.conflict != nil }, set: { _ in })
     }
 
     @ViewBuilder
