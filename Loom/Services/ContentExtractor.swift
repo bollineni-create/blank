@@ -63,7 +63,9 @@ enum ContentExtractor {
         s = s.replacingOccurrences(of: #"<(br|/p|/div|/h[1-6]|/li|/tr)[^>]*>"#, with: "\n", options: [.regularExpression, .caseInsensitive])
         s = s.replacingOccurrences(of: #"<[^>]+>"#, with: " ", options: .regularExpression)
         s = decodeEntities(s)
-        s = s.replacingOccurrences(of: #"[ \t\u{00A0}]+"#, with: " ", options: .regularExpression)
+        // ICU spells the non-breaking space \u00A0; Swift's \u{00A0} isn't read inside a raw string, and the
+        // pattern it left behind was invalid, so runs of spaces were never collapsed.
+        s = s.replacingOccurrences(of: #"[ \t\u00A0]+"#, with: " ", options: .regularExpression)
         s = s.replacingOccurrences(of: #"\s*\n\s*"#, with: "\n", options: .regularExpression)
         return s.trimmingCharacters(in: .whitespacesAndNewlines)
     }
@@ -90,9 +92,11 @@ enum ContentExtractor {
 
     private static func decodeEntities(_ s: String) -> String {
         var out = s
-        let named = ["&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": "\"", "&#39;": "'", "&apos;": "'",
-                     "&nbsp;": " ", "&mdash;": "—", "&ndash;": "–", "&hellip;": "…", "&rsquo;": "’", "&lsquo;": "‘",
-                     "&rdquo;": "”", "&ldquo;": "“"]
+        // In this order, with &amp; last: a dictionary's order isn't fixed, and decoding &amp; first turned
+        // "&amp;lt;" into "<".
+        let named: [(String, String)] = [("&lt;", "<"), ("&gt;", ">"), ("&quot;", "\""), ("&#39;", "'"), ("&apos;", "'"),
+                                         ("&nbsp;", " "), ("&mdash;", "—"), ("&ndash;", "–"), ("&hellip;", "…"), ("&rsquo;", "’"),
+                                         ("&lsquo;", "‘"), ("&rdquo;", "”"), ("&ldquo;", "“"), ("&amp;", "&")]
         for (k, v) in named { out = out.replacingOccurrences(of: k, with: v) }
         // Numeric entities like &#8217; or &#x2019;
         guard let regex = try? NSRegularExpression(pattern: #"&#(x?)([0-9a-fA-F]+);"#) else { return out }

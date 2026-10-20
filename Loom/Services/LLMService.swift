@@ -66,14 +66,15 @@ final class LLMService {
         }
     }
 
-    /// Runs one prompt and streams the answer. Calls are queued so only one runs at a time.
+    /// Runs one prompt and streams the answer. Calls are queued so only one runs at a time. `onToken` gets the
+    /// whole answer so far, on the main actor, so views can show it as it arrives.
     @discardableResult
     func generate(
         system: String,
         prompt: String,
         maxTokens: Int = 600,
         temperature: Float = 0.4,
-        onToken: ((String) -> Void)? = nil
+        onToken: (@MainActor (String) -> Void)? = nil
     ) async throws -> String {
         while isGenerating { try await Task.sleep(for: .milliseconds(150)) }
         guard isReady else { throw LLMError.notReady }

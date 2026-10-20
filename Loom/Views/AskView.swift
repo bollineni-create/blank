@@ -76,6 +76,10 @@ struct AskView: View {
                         Divider()
                         if let conversation {
                             Button("Delete This Chat", role: .destructive) {
+                                // Stop an answer in flight first, or it would be saved into the deleted chat.
+                                task?.cancel()
+                                streaming = nil
+                                errorText = nil
                                 context.delete(conversation)
                                 self.conversation = nil
                             }
@@ -202,7 +206,8 @@ struct AskView: View {
                 errorText = error.localizedDescription
                 answer = streaming ?? ""
             }
-            if !answer.isEmpty {
+            // The chat may have been deleted while the answer was being written; nothing to save it into then.
+            if !answer.isEmpty, !convo.isDeleted {
                 let cited = Self.renumberCitations(answer, sourceIDs: sourceIDs)
                 let reply = ChatMessage(isUser: false, text: cited.text, sourceIDs: cited.sourceIDs)
                 context.insert(reply)

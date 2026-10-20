@@ -261,9 +261,11 @@ final class Librarian {
             (item.aiStatus == .importing || item.aiStatus == .processing) && item.createdAt > recent
         }
         /// Waiting its turn with the AI, or mid-way through on another device. Only for an hour: an item marked
-        /// waiting or working longer than that, with nothing on this device working on it, is stuck.
+        /// waiting or working longer than that, with nothing on this device working on it, is stuck. An item
+        /// waiting for a model that isn't available right now isn't stuck, however long ago it was added.
         func onItsWay(_ item: Item) -> Bool {
-            [.importing, .processing, .pending].contains(item.aiStatus) && item.createdAt > recent
+            if item.aiStatus == .pending && !llm.isReady { return true }
+            return [.importing, .processing, .pending].contains(item.aiStatus) && item.createdAt > recent
         }
 
         // An item with a copy for iCloud can't be missing its file: the file is written from that copy on first use.
@@ -277,7 +279,9 @@ final class Librarian {
             broken.append(BrokenFile(id: item.id, reason: .fileMissing, kind: item.kind, title: item.displayTitle))
         }
 
-        // Loose on the map: nothing connects it to anything, and the AI is done with it.
+        // Loose on the map: nothing connects it to anything, and the AI is done with it. With auto-organize off
+        // nothing ever tags an item, so a bare one is how the user keeps it, not a broken file.
+        guard autoOrganize else { return broken }
         let found = Set(broken.map(\.id))
         let items = (try? context?.fetch(FetchDescriptor<Item>(sortBy: [SortDescriptor(\.createdAt, order: .reverse)]))) ?? []
         for item in items where !found.contains(item.id) {
@@ -428,7 +432,11 @@ final class Librarian {
         setStage(id: item.id, title: displayName, symbol: symbol, .copying)
         addTasks[item.id] = Task {
             await Self.copies.acquire()
-            let name = await Task.detached(priority: .userInitiated) { try? copy() }.value
+            // Cancelled while waiting its turn: don't copy a file nobody wants any more.
+            var name: String?
+            if !cancelledIDs.contains(item.id) {
+                name = await Task.detached(priority: .userInitiated) { try? copy() }.value
+            }
             Self.copies.release()
             if cancelledIDs.contains(item.id) {
                 // Cancelled before it joined the library: nothing to keep.
@@ -707,11 +715,23 @@ final class Librarian {
         try? context?.save()
     }
 
-    /// Call after the user edits an item so search stays accurate.
+    /// Call after the user edits an item so search stays accurate. Safe to call on an item that was just
+    /// deleted (the detail view does, as it closes): a deleted item is left alone.
     func itemEdited(_ item: Item) {
+        guard !item.isDeleted, item.modelContext != nil else { return }
         item.touch()
-        item.embedding = SearchIndex.pack(SearchIndex.embed(item.fullText + "\n" + item.summary))
         try? context?.save()
+        Task {
+            let embedding = await SearchIndex.embedInBackground(Self.searchText(for: item))
+            guard !item.isDeleted, item.modelContext != nil else { return }
+            item.embedding = embedding
+            try? context?.save()
+        }
+    }
+
+    /// What an item's search vector is made from: its text plus what the AI wrote about it.
+    private static func searchText(for item: Item) -> String {
+        item.fullText + "\n" + item.summary + "\n" + item.takeaways.joined(separator: "\n") + "\n" + item.tags.joined(separator: " ")
     }
 
     func reorganize(_ item: Item) {
@@ -934,8 +954,7 @@ final class Librarian {
                     .filter { !$0.isEmpty && $0.count < 30 }
                 item.tags = Array(NSOrderedSet(array: item.tags + cleaned)).compactMap { $0 as? String }.prefix(8).map { $0 }
             }
-            item.embedding = await SearchIndex.embedInBackground(
-                item.fullText + "\n" + item.summary + "\n" + item.takeaways.joined(separator: "\n") + "\n" + item.tags.joined(separator: " "))
+            item.embedding = await SearchIndex.embedInBackground(Self.searchText(for: item))
             item.aiVersion = Self.aiVersion
             item.aiStatus = .done
             stalledOnce.remove(item.id)
