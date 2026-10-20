@@ -298,18 +298,36 @@ struct CleanUpButton: View {
     private var message: String {
         let failed = files.filter { $0.reason == .copyFailed }.count
         let missing = files.filter { $0.reason == .fileMissing }.count
+        let empty = files.filter { $0.reason == .empty }
         var parts: [String] = []
         if failed > 0 {
             parts.append("\(failed) couldn't be copied into your library")
         }
         if missing > 0 {
-            parts.append("\(missing) \(missing == 1 ? "is" : "are") in the library but missing \(missing == 1 ? "its" : "their") file, on this device and in iCloud")
+            parts.append("\(missing) \(missing == 1 ? "is" : "are") missing \(missing == 1 ? "its" : "their") file, on this device and in iCloud")
         }
-        var text = parts.joined(separator: ", and ") + ". "
-        text += "They're taken out of the library and the status list. Files Apple Intelligence couldn't summarize are kept; Retry runs them again."
+        if !empty.isEmpty {
+            parts.append("\(empty.count) \(empty.count == 1 ? "has" : "have") nothing readable in \(empty.count == 1 ? "it" : "them"), no text, summary or tags (\(Self.kinds(of: empty)))")
+        }
+        var text = parts.joined(separator: "; ") + ". "
+        text += "They're taken out of the library and the status list. Files Apple Intelligence couldn't summarize but that have text in them are kept; Retry runs them again."
         if missing > 0, sync.hasCloudKit == true {
             text += " A file that was saved on another device is removed there too. To keep it, open Settings on that device and tap Send everything on this device to iCloud first; its file then fills in here."
         }
         return text
+    }
+
+    /// "3 images, 1 PDF and 2 files", most numerous first.
+    private static func kinds(of files: [Librarian.BrokenFile]) -> String {
+        var counts: [ItemKind: Int] = [:]
+        for file in files { counts[file.kind ?? .file, default: 0] += 1 }
+        let words = counts.sorted { $0.value == $1.value ? $0.key.rawValue < $1.key.rawValue : $0.value > $1.value }
+            .map { kind, n -> String in
+                let plural = kind == .pdf ? "PDFs" : kind.label.lowercased()
+                let single = kind == .pdf ? "PDF" : String(kind.label.dropLast()).lowercased()
+                return "\(n) \(n == 1 ? single : plural)"
+            }
+        if words.count <= 1 { return words.joined() }
+        return words.dropLast().joined(separator: ", ") + " and " + words.last!
     }
 }

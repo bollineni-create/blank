@@ -219,27 +219,45 @@ final class Librarian {
 
     // MARK: Cleaning up
 
-    /// A file that's broken: it never made it into the library whole, or what's in the library has no file behind it.
+    /// A file that's broken: it never made it into the library whole, what's in the library has no file behind
+    /// it, or it has nothing in it at all.
     struct BrokenFile: Identifiable, Equatable {
         enum Reason {
             /// Its copy failed, so it's still in the status list and never joined the library.
             case copyFailed
             /// It's in the library, but its file is neither on this device nor in iCloud.
             case fileMissing
+            /// It's in the library with nothing readable in it: no text, no summary, no tags and no space,
+            /// so it hangs off nothing on the map and no search finds it.
+            case empty
         }
         let id: UUID
         let reason: Reason
+        /// What kind of item it is, when it's in the library.
+        var kind: ItemKind?
     }
 
-    /// Every broken file: status-list entries whose copy failed, and items whose file is missing from this
-    /// device and from iCloud. Nothing still being added counts, and with `syncing` on, neither does an item
-    /// another device is still adding (its file arrives when that device finishes). An item Apple Intelligence
-    /// couldn't summarize isn't broken: its file is whole, and Retry runs it again.
+    /// Adds cut off longer ago than this aren't still arriving from another device; they're stuck.
+    private static let addGracePeriod: TimeInterval = 60 * 60
+
+    /// Every broken file: status-list entries whose copy failed, items whose file is missing from this device
+    /// and from iCloud, and items with nothing readable in them. Nothing still being added counts, and with
+    /// `syncing` on, neither does an item another device started adding within the last hour (its file arrives
+    /// when that device finishes). An item Apple Intelligence couldn't summarize but that has text in it isn't
+    /// broken: Retry runs it again.
     func brokenFiles(syncing: Bool) -> [BrokenFile] {
         var broken: [BrokenFile] = []
         for activity in activities where activity.stage.isFailed && failedAdds[activity.id] != nil {
             broken.append(BrokenFile(id: activity.id, reason: .copyFailed))
         }
+        let recent = Date.now.addingTimeInterval(-Self.addGracePeriod)
+        func inProgress(_ item: Item) -> Bool {
+            addTasks[item.id] != nil || organizing?.id == item.id
+        }
+        func stillArriving(_ item: Item) -> Bool {
+            (item.aiStatus == .importing || item.aiStatus == .processing) && item.createdAt > recent
+        }
+
         // An item with a copy for iCloud can't be missing its file: the file is written from that copy on first use.
         let note = ItemKind.note.rawValue
         let link = ItemKind.link.rawValue
@@ -247,10 +265,26 @@ final class Librarian {
             predicate: #Predicate { $0.attachmentData == nil && $0.kindRaw != note && $0.kindRaw != link }))) ?? []
         for item in candidates {
             if let name = item.attachmentName, AttachmentStore.hasFile(named: name) { continue }
-            if addTasks[item.id] != nil || organizing?.id == item.id { continue }
-            let beingAddedElsewhere = item.aiStatus == .importing || item.aiStatus == .processing
-            if syncing && beingAddedElsewhere { continue }
-            broken.append(BrokenFile(id: item.id, reason: .fileMissing))
+            if inProgress(item) || (syncing && stillArriving(item)) { continue }
+            broken.append(BrokenFile(id: item.id, reason: .fileMissing, kind: item.kind))
+        }
+
+        // Items with nothing in them. Links are kept: the address itself is what was saved.
+        let found = Set(broken.map(\.id))
+        let items = (try? context?.fetch(FetchDescriptor<Item>())) ?? []
+        for item in items where !found.contains(item.id) && item.kind != .link {
+            guard item.tags.isEmpty, item.space == nil, item.summary.isEmpty, item.takeaways.isEmpty,
+                  item.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
+            // Not done being added or organized yet; it may still get text, a summary and tags.
+            if inProgress(item) || item.aiStatus == .pending || stillArriving(item) { continue }
+            let hasText: Bool
+            switch item.kind {
+            case .note: hasText = !item.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            case .video: hasText = item.videoHasContent
+            default: hasText = !item.extractedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            }
+            if hasText { continue }
+            broken.append(BrokenFile(id: item.id, reason: .empty, kind: item.kind))
         }
         return broken
     }
