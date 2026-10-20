@@ -56,7 +56,7 @@ struct SettingsView: View {
             } header: {
                 Text("Library")
             } footer: {
-                Text("A broken file is one whose copy into the library never finished, one that's in the library with no file behind it on this device or in iCloud, or one that hangs off nothing on the map: no tags and no space, like a video saved as a picture by mistake or a photo with no words in it. Clean up removes them all at once and names them first. Items still being added or waiting for Apple Intelligence are left alone.")
+                Text("A broken file is one whose copy into the library never finished, one that's in the library with no file behind it on this device or in iCloud, or one that hangs off nothing on the map: no tags and no space, like a video saved as a picture by mistake or a photo with no words in it. Clean up removes them all at once and names them first. Items being added or organized right now, or added in the last hour and still waiting for Apple Intelligence, are left alone.")
             }
 
             Section {
