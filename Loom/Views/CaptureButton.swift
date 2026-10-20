@@ -37,23 +37,55 @@ struct CaptureButton: View {
         .onChange(of: photoSelection) { _, picked in
             guard !picked.isEmpty else { return }
             Task {
-                for p in picked {
-                    if p.supportedContentTypes.contains(where: { $0.conforms(to: .movie) }) {
-                        // Videos come in as a temporary file; the library keeps its own copy.
-                        let placeholder = librarian.startPlaceholder("Video from Photos", symbol: "video")
-                        let movie = try? await p.loadTransferable(type: PickedMovie.self)
-                        librarian.endPlaceholder(placeholder)
-                        if let movie { librarian.addFile(movie.url, removeSourceWhenDone: true) }
-                    } else if let data = try? await p.loadTransferable(type: Data.self) {
-                        librarian.addImage(data)
-                    }
-                }
+                for p in picked { await add(p) }
                 photoSelection = []
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .loomNewNote)) { _ in showingNote = true }
         .onReceive(NotificationCenter.default.publisher(for: .loomNewLink)) { _ in showingLink = true }
         .onReceive(NotificationCenter.default.publisher(for: .loomPaste)) { _ in pasteFromClipboard() }
+    }
+
+    /// Adds a photo or video from the picker. The picker doesn't always say which it is (on the Mac,
+    /// `supportedContentTypes` can come back empty), and a video loaded as plain data used to be saved as a
+    /// picture: an image file nothing could open, with nothing in it to read. So anything that isn't clearly a
+    /// photo is tried as a video first, and plain data is checked for a movie container before it's kept as one.
+    private func add(_ p: PhotosPickerItem) async {
+        let types = p.supportedContentTypes
+        let saysMovie = types.contains { $0.conforms(to: .movie) || $0.conforms(to: .video) }
+        let saysImage = types.contains { $0.conforms(to: .image) }
+        if saysMovie || !saysImage {
+            // Videos come in as a temporary file; the library keeps its own copy.
+            let placeholder = librarian.startPlaceholder("Video from Photos", symbol: "video")
+            let movie = try? await p.loadTransferable(type: PickedMovie.self)
+            librarian.endPlaceholder(placeholder)
+            if let movie {
+                librarian.addFile(movie.url, removeSourceWhenDone: true)
+                return
+            }
+        }
+        guard let data = try? await p.loadTransferable(type: Data.self) else { return }
+        if let ext = Self.movieExtension(of: data) {
+            // A video the picker wouldn't hand over as a file: write it out as one, so it's read and played as a video.
+            let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            let url = folder.appendingPathComponent("Video from Photos.\(ext)")
+            do {
+                try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+                try data.write(to: url)
+                librarian.addFile(url, removeSourceWhenDone: true)
+            } catch {
+                // Nothing to add.
+            }
+        } else if PlatformImage(data: data) != nil {
+            librarian.addImage(data)
+        }
+    }
+
+    /// "mov" or "mp4" when the bytes are a QuickTime or MPEG-4 file (both open with an `ftyp` box), else nil.
+    private static func movieExtension(of data: Data) -> String? {
+        let head = Array(data.prefix(12))
+        guard head.count == 12, head[4..<8].elementsEqual("ftyp".utf8) else { return nil }
+        return head[8..<12].elementsEqual("qt  ".utf8) ? "mov" : "mp4"
     }
 
     private func pasteFromClipboard() {
