@@ -63,7 +63,9 @@ enum ContentExtractor {
         s = s.replacingOccurrences(of: #"<(br|/p|/div|/h[1-6]|/li|/tr)[^>]*>"#, with: "\n", options: [.regularExpression, .caseInsensitive])
         s = s.replacingOccurrences(of: #"<[^>]+>"#, with: " ", options: .regularExpression)
         s = decodeEntities(s)
-        s = s.replacingOccurrences(of: #"[ \t\u{00A0}]+"#, with: " ", options: .regularExpression)
+        // ICU spells the non-breaking space \u00A0; Swift's \u{00A0} isn't read inside a raw string, and the
+        // pattern it left behind was invalid, so runs of spaces were never collapsed.
+        s = s.replacingOccurrences(of: #"[ \t\u00A0]+"#, with: " ", options: .regularExpression)
         s = s.replacingOccurrences(of: #"\s*\n\s*"#, with: "\n", options: .regularExpression)
         return s.trimmingCharacters(in: .whitespacesAndNewlines)
     }
