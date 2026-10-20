@@ -56,7 +56,7 @@ struct SettingsView: View {
             } header: {
                 Text("Library")
             } footer: {
-                Text("A broken file is one whose copy into the library never finished, or one that's in the library with no file behind it on this device or in iCloud. Clean up removes them all at once. Files Apple Intelligence couldn't summarize aren't broken: Retry in the status panel runs them again.")
+                Text("A broken file is one whose copy into the library never finished, one that's in the library with no file behind it on this device or in iCloud, or one with nothing readable in it: no text, summary or tags, so it floats loose on the map and no search finds it. Clean up removes them all at once. Files Apple Intelligence couldn't summarize but that have text in them aren't broken: Retry in the status panel runs them again.")
             }
 
             Section {
