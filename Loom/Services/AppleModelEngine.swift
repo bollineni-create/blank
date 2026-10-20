@@ -134,14 +134,20 @@ struct AppleModelError: LocalizedError {
     let message: String
     /// The model itself isn't working right now (not a problem with this prompt): pause it and wait.
     var isRuntimeFailure = false
+    /// The call ran past its deadline (see `LLMService.organizeTimeout`).
+    var isTimeout = false
 
-    init(message: String, isRuntimeFailure: Bool) {
+    init(message: String, isRuntimeFailure: Bool, isTimeout: Bool = false) {
         self.message = message
         self.isRuntimeFailure = isRuntimeFailure
+        self.isTimeout = isTimeout
     }
 
     static let notResponding = AppleModelError(
         message: "Apple Intelligence isn't responding right now. Loom will try again shortly.", isRuntimeFailure: true)
+
+    static let timedOut = AppleModelError(
+        message: "Apple Intelligence didn't answer in time. Try again.", isRuntimeFailure: false, isTimeout: true)
 
     #if canImport(FoundationModels)
     @available(iOS 26.0, macOS 26.0, *)
