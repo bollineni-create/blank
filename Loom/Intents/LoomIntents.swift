@@ -112,7 +112,8 @@ struct SaveToLoomIntent: AppIntent {
             let name = file.filename.isEmpty ? "Shared file" : file.filename
             let copy = folder.appendingPathComponent(name)
             try file.data.write(to: copy)
-            librarian.addFile(copy, removeSourceWhenDone: true)
+            // No window to ask in: a file already in the library is saved as another copy.
+            librarian.addFile(copy, removeSourceWhenDone: true, onConflict: .keepBoth)
             return .result(dialog: "Saved \(name) to Loom.")
         }
         guard let text = content?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else {

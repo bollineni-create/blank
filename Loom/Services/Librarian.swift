@@ -288,10 +288,39 @@ final class Librarian {
         importAttachment(into: item, named: "Image") { try AttachmentStore.save(data, fileExtension: fileExtension) }
     }
 
+    /// What to do when a file being added has the same name as one already in the library.
+    enum ConflictPolicy {
+        /// Ask, through `conflict`: replace the copy that's there, or skip this file.
+        case ask
+        case replace
+        /// Add it as another copy, without asking (Shortcuts and Siri have no window to ask in).
+        case keepBoth
+    }
+
     /// Adds any file. The tray shows it right away; it joins the library as soon as its copy is whole, and
     /// reading it (text, OCR, transcription) happens a few files at a time in the background.
     /// Pass `removeSourceWhenDone` for temporary copies (drops, Photos) so they're cleaned up after.
-    func addFile(_ url: URL, space: Space? = nil, removeSourceWhenDone: Bool = false) {
+    /// A file with the same name as one already in the library is handled per `onConflict`.
+    func addFile(_ url: URL, space: Space? = nil, removeSourceWhenDone: Bool = false, onConflict: ConflictPolicy = .ask) {
+        let fileName = url.lastPathComponent
+        let matches = onConflict == .keepBoth ? [] : existingCopies(named: fileName)
+        guard !matches.isEmpty, onConflict == .ask else {
+            startFile(url, space: space, removeSourceWhenDone: removeSourceWhenDone, replacing: matches)
+            return
+        }
+        ask(Conflict(fileName: fileName, matches: matches) { [weak self] replace in
+            guard let self else { return }
+            if replace {
+                startFile(url, space: space, removeSourceWhenDone: removeSourceWhenDone, replacing: matches)
+            } else if removeSourceWhenDone {
+                AttachmentStore.removeTemporary(url)
+            }
+        })
+    }
+
+    /// Adds a file, taking the place of `replacing` (copies of it already in the library) once its copy is whole.
+    /// The new item keeps the old one's space, tags and favorite, so a replaced file stays where it was.
+    private func startFile(_ url: URL, space: Space?, removeSourceWhenDone: Bool, replacing: [ExistingCopy]) {
         let type = UTType(filenameExtension: url.pathExtension) ?? .data
         let kind: ItemKind = type.conforms(to: .pdf) ? .pdf
             : type.conforms(to: .image) ? .image
@@ -299,15 +328,22 @@ final class Librarian {
             : .file
         let title = url.deletingPathExtension().lastPathComponent
         let item = Item(kind: kind, title: kind == .image ? "" : title, space: space)
-        importAttachment(into: item, named: url.lastPathComponent, removeSource: removeSourceWhenDone ? url : nil) {
+        if let old = replacing.compactMap({ fetchItem($0.id) }).first {
+            if space == nil { item.space = old.space }
+            item.tags = old.tags
+            item.isFavorite = old.isFavorite
+        }
+        importAttachment(into: item, named: url.lastPathComponent, removeSource: removeSourceWhenDone ? url : nil,
+                         replacing: replacing.map(\.id)) {
             try AttachmentStore.importFile(at: url)
         }
     }
 
     /// Copies a file into the library, then adds the item and reads it. The item is only saved once its file
     /// is whole, so quitting mid-copy leaves nothing behind; quitting mid-read is picked up at the next launch.
+    /// Items in `replacing` are removed at that same moment, so a copy that fails leaves them as they were.
     private func importAttachment(into item: Item, named displayName: String, removeSource: URL? = nil,
-                                  copy: @escaping @Sendable () throws -> String) {
+                                  replacing: [UUID] = [], copy: @escaping @Sendable () throws -> String) {
         item.aiStatus = .importing
         let symbol = item.kind.symbol
         setStage(id: item.id, title: displayName, symbol: symbol, .copying)
@@ -328,18 +364,133 @@ final class Librarian {
                 addTasks[item.id] = nil
                 failedAdds[item.id] = FailedAdd(
                     again: { [weak self] in
-                        self?.importAttachment(into: item, named: displayName, removeSource: removeSource, copy: copy)
+                        self?.importAttachment(into: item, named: displayName, removeSource: removeSource,
+                                               replacing: replacing, copy: copy)
                     },
                     cleanUp: { if let removeSource { AttachmentStore.removeTemporary(removeSource) } })
                 setStage(id: item.id, title: displayName, symbol: symbol, .failed("Couldn't copy \(displayName)"))
                 return
             }
             if let removeSource { AttachmentStore.removeTemporary(removeSource) }
+            for id in replacing { removeReplaced(id) }
             item.attachmentName = name
             insert(item)
             await readAttachment(item)
             if discardIfCancelled(item) { return }
             await finishAdding(item)
+        }
+    }
+
+    // MARK: Files already in the library
+
+    /// A copy of a file that's already in the library, or still in the tray after a failed copy.
+    struct ExistingCopy {
+        let id: UUID
+        /// Didn't finish adding: its copy failed, it was cut off, the AI failed on it, or its file is missing.
+        let isBroken: Bool
+        /// Being copied in or read right now.
+        let isInProgress: Bool
+    }
+
+    /// Every copy of a file with this name: items whose file came in under it, and tray entries whose copy
+    /// of it failed. Names are compared the way Finder does, ignoring case.
+    func existingCopies(named fileName: String) -> [ExistingCopy] {
+        var copies: [ExistingCopy] = []
+        let items = (try? context?.fetch(FetchDescriptor<Item>(predicate: #Predicate { $0.attachmentName != nil }))) ?? []
+        for item in items {
+            guard let stored = item.attachmentName, let original = AttachmentStore.originalName(of: stored),
+                  original.caseInsensitiveCompare(fileName) == .orderedSame else { continue }
+            let failedInTray = activities.contains { $0.id == item.id && $0.stage.isFailed }
+            let missing = !AttachmentStore.hasFile(named: stored) && item.attachmentData == nil
+            let inProgress = addTasks[item.id] != nil && !failedInTray
+            let cutOff = (item.aiStatus == .importing || item.aiStatus == .processing) && !inProgress
+            copies.append(ExistingCopy(id: item.id,
+                                       isBroken: failedInTray || missing || cutOff || item.aiStatus == .failed,
+                                       isInProgress: inProgress))
+        }
+        for activity in activities where activity.stage.isFailed && failedAdds[activity.id] != nil
+            && activity.title.caseInsensitiveCompare(fileName) == .orderedSame {
+            copies.append(ExistingCopy(id: activity.id, isBroken: true, isInProgress: false))
+        }
+        return copies
+    }
+
+    /// Takes a copy out of the library (and the tray) because a new copy of the same file has come in.
+    private func removeReplaced(_ id: UUID) {
+        activities.removeAll { $0.id == id }
+        failedAdds.removeValue(forKey: id)?.cleanUp()
+        if let task = addTasks[id] {
+            // Still being added: its task removes the half-added item at its next step.
+            cancelledIDs.insert(id)
+            task.cancel()
+            return
+        }
+        guard let item = fetchItem(id) else { return }
+        if let organizing, organizing.id == id {
+            // Let the AI step finish (it still writes to the item), then let the item go.
+            let task = organizing.task
+            task.cancel()
+            Task {
+                await task.value
+                if let item = fetchItem(id) { delete(item) }
+            }
+            return
+        }
+        delete(item)
+    }
+
+    /// A question for the user: a file being added has the same name as one already in the library.
+    struct Conflict: Identifiable {
+        let id = UUID()
+        let fileName: String
+        let matches: [ExistingCopy]
+        /// Called once with the answer: replace what's there (true) or skip this file (false).
+        let proceed: (Bool) -> Void
+
+        var isBroken: Bool { matches.contains(where: \.isBroken) }
+
+        var title: String {
+            if isBroken { return "“\(fileName)” didn't finish adding" }
+            if matches.contains(where: \.isInProgress) { return "“\(fileName)” is being added" }
+            return "“\(fileName)” is already in your library"
+        }
+
+        var message: String {
+            let copies = matches.count == 1 ? "the copy" : "the \(matches.count) copies"
+            if isBroken {
+                let what = matches.count == 1 ? "The copy" : "A copy"
+                return "\(what) in your library is incomplete. Replace \(copies) with the file you're adding, or skip this file and keep what's there."
+            }
+            return "Replace \(copies) in your library with the file you're adding (its space, tags and favorite are kept), or skip this file."
+        }
+    }
+
+    /// The question being asked right now; the main page shows it. Others wait their turn.
+    private(set) var conflict: Conflict?
+    private var conflictQueue: [Conflict] = []
+    /// How many files are waiting on an answer, counting the one being asked about.
+    var conflictsWaiting: Int { conflictQueue.count + (conflict == nil ? 0 : 1) }
+
+    private func ask(_ question: Conflict) {
+        if conflict == nil { conflict = question } else { conflictQueue.append(question) }
+    }
+
+    /// Answers the current question. With `all`, every file still waiting gets the same answer.
+    func resolveConflict(replace: Bool, all: Bool = false) {
+        guard let current = conflict else { return }
+        conflict = nil
+        current.proceed(replace)
+        if all {
+            let rest = conflictQueue
+            conflictQueue.removeAll()
+            for question in rest { question.proceed(replace) }
+            return
+        }
+        guard !conflictQueue.isEmpty else { return }
+        // Let the alert close before the next one opens, or it stays shut.
+        Task {
+            try? await Task.sleep(for: .milliseconds(400))
+            if conflict == nil, !conflictQueue.isEmpty { conflict = conflictQueue.removeFirst() }
         }
     }
 
