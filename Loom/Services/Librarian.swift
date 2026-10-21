@@ -785,11 +785,15 @@ final class Librarian {
     }
 
     private static func linkKey(_ url: URL) -> String {
-        var parts = URLComponents(url: url, resolvingAgainstBaseURL: false)
-        parts?.fragment = nil
-        parts?.scheme = parts?.scheme?.lowercased()
-        parts?.host = parts?.host?.lowercased()
-        var key = parts?.string ?? url.absoluteString
+        var key = url.absoluteString
+        if var parts = URLComponents(url: url, resolvingAgainstBaseURL: false) {
+            parts.fragment = nil
+            let scheme = parts.scheme?.lowercased()
+            let host = parts.host?.lowercased()
+            parts.scheme = scheme
+            parts.host = host
+            key = parts.string ?? key
+        }
         while key.hasSuffix("/") { key.removeLast() }
         return key
     }
