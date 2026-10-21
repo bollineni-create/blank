@@ -700,8 +700,8 @@ final class Librarian {
                         return
                     }
                     addTasks[item.id] = Task {
-                        await commit(item, stored: stored, removeSource: removeSource, replacing: replacing,
-                                     alsoReplacing: sameContent)
+                        await self.commit(item, stored: stored, removeSource: removeSource, replacing: replacing,
+                                          alsoReplacing: sameContent)
                     }
                 })
             }

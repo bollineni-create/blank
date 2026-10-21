@@ -434,6 +434,7 @@ struct UploadsTray: View {
             .onTapGesture { onOpen(activity.id) }
             switch activity.stage {
             case .done: Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.statusReady)
+            case .alreadyAdded: Image(systemName: "doc.on.doc.fill").foregroundStyle(Theme.labelSecondary)
             case .failed:
                 Button { withAnimation(Theme.motion) { librarian.retry(activity.id) } } label: {
                     Image(systemName: "arrow.clockwise.circle.fill").font(.title3).foregroundStyle(Theme.accentInk)
