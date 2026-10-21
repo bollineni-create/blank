@@ -112,14 +112,18 @@ struct SaveToLoomIntent: AppIntent {
             let name = file.filename.isEmpty ? "Shared file" : file.filename
             let copy = folder.appendingPathComponent(name)
             try file.data.write(to: copy)
-            // No window to ask in: a file already in the library is saved as another copy.
+            // No window to ask in: a file with a name already in the library is saved as another copy, and one
+            // whose contents are already there is let go once that's known.
             librarian.addFile(copy, removeSourceWhenDone: true, onConflict: .keepBoth)
             return .result(dialog: "Saved \(name) to Loom.")
         }
         guard let text = content?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else {
             throw $content.needsValueError("What should Loom save?")
         }
-        librarian.addPasted(text)
+        // A link already saved is kept as it is.
+        guard librarian.addPasted(text, onConflict: .keepBoth) else {
+            return .result(dialog: "That link is already in Loom.")
+        }
         return .result(dialog: "Saved to Loom.")
     }
 }

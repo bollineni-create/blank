@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 /// Keeps copies of imported files in the app's own Application Support folder,
@@ -38,15 +39,61 @@ enum AttachmentStore {
         return (size ?? 0) > 0
     }
 
-    /// Copies a file in and returns its stored name. The copy is staged first, then moved into place in one step.
-    static func importFile(at source: URL) throws -> String {
+    /// A stored file and the hash of its bytes.
+    struct Stored: Sendable {
+        let name: String
+        let hash: String
+    }
+
+    /// Copies a file in and returns its stored name and content hash. The copy is staged first, then moved
+    /// into place in one step. The hash is taken as the bytes go by, so a file is read once.
+    static func importFile(at source: URL) throws -> Stored {
         let accessing = source.startAccessingSecurityScopedResource()
         defer { if accessing { source.stopAccessingSecurityScopedResource() } }
         let name = "\(UUID().uuidString)-\(source.lastPathComponent)"
         let staged = stagingDirectory.appendingPathComponent(name)
-        try FileManager.default.copyItem(at: source, to: staged)
+        let reader = try FileHandle(forReadingFrom: source)
+        defer { try? reader.close() }
+        guard FileManager.default.createFile(atPath: staged.path, contents: nil) else {
+            throw CocoaError(.fileWriteUnknown)
+        }
+        let writer = try FileHandle(forWritingTo: staged)
+        var hasher = SHA256()
+        do {
+            while let chunk = try reader.read(upToCount: chunkSize), !chunk.isEmpty {
+                hasher.update(data: chunk)
+                try writer.write(contentsOf: chunk)
+            }
+            try writer.close()
+        } catch {
+            try? writer.close()
+            try? FileManager.default.removeItem(at: staged)
+            throw error
+        }
         try FileManager.default.moveItem(at: staged, to: url(for: name))
-        return name
+        return Stored(name: name, hash: hex(hasher.finalize()))
+    }
+
+    private static let chunkSize = 1 << 20
+
+    /// SHA-256 of `data`, as hex.
+    static func hash(of data: Data) -> String {
+        hex(SHA256.hash(data: data))
+    }
+
+    /// SHA-256 of a stored file's bytes, read a chunk at a time. Nil if the file can't be read.
+    static func hash(ofFileNamed name: String) -> String? {
+        guard let reader = try? FileHandle(forReadingFrom: url(for: name)) else { return nil }
+        defer { try? reader.close() }
+        var hasher = SHA256()
+        while let chunk = try? reader.read(upToCount: chunkSize), !chunk.isEmpty {
+            hasher.update(data: chunk)
+        }
+        return hex(hasher.finalize())
+    }
+
+    private static func hex(_ digest: SHA256Digest) -> String {
+        digest.map { String(format: "%02x", $0) }.joined()
     }
 
     /// Throws away copies that never finished (the app quit mid-copy). Call once at launch.

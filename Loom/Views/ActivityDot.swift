@@ -246,6 +246,7 @@ struct ActivityPanel: View {
             } else {
                 switch activity.stage {
                 case .done: Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.statusReady)
+                case .alreadyAdded: Image(systemName: "doc.on.doc.fill").foregroundStyle(Theme.labelSecondary)
                 case .failed: Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Theme.statusWarning)
                 case .waitingForModel: Image(systemName: "pause.circle.fill").foregroundStyle(Theme.labelSecondary)
                 default: ProgressView().controlSize(.small)
@@ -259,7 +260,7 @@ struct ActivityPanel: View {
         switch stage {
         case .copying, .reading: Theme.statusUploading
         case .queued, .summarizing, .waitingForModel: Theme.statusBusy
-        case .done: Theme.statusReady
+        case .done, .alreadyAdded: Theme.statusReady
         case .failed: Theme.statusWarning
         }
     }
