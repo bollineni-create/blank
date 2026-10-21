@@ -72,7 +72,8 @@ struct RootView: View {
         .onChange(of: librarian.lastAddedID) { _, id in
             if let id { focusRequest = id }
         }
-        // A file being added has the same name as one in the library: replace it, or skip the file.
+        // Something being added is already in the library (a file by name or by contents, or a link): replace
+        // it, or skip the new one.
         .alert(librarian.conflict?.title ?? "", isPresented: conflictShown, presenting: librarian.conflict) { conflict in
             let waiting = librarian.conflictsWaiting
             Button("Replace") { librarian.resolveConflict(replace: true) }

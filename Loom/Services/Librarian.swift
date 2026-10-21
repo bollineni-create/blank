@@ -183,6 +183,8 @@ final class Librarian {
         case queued
         case summarizing
         case done
+        /// The very same file (or link) was already in the library, so this copy was let go.
+        case alreadyAdded
         case failed(String)
 
         var label: String {
@@ -193,12 +195,14 @@ final class Librarian {
             case .queued: "Queued for summary…"
             case .summarizing: "Summarizing lessons…"
             case .done: "Added"
+            case .alreadyAdded: "Already in your library"
             case .failed(let why): why
             }
         }
 
-        /// Done: the tray entry fades out on its own. Failed ones stay until they're retried or removed.
-        var isTerminal: Bool { self == .done }
+        /// Done, or skipped as a duplicate: the tray entry fades out on its own. Failed ones stay until
+        /// they're retried or removed.
+        var isTerminal: Bool { self == .done || self == .alreadyAdded }
 
         var isFailed: Bool {
             if case .failed = self { return true }
@@ -207,7 +211,7 @@ final class Librarian {
 
         var isFinished: Bool {
             switch self {
-            case .done, .failed, .waitingForModel: true
+            case .done, .alreadyAdded, .failed, .waitingForModel: true
             default: false
             }
         }
@@ -228,7 +232,7 @@ final class Librarian {
             case .waitingForModel: 0.5
             case .queued: 0.55
             case .summarizing: 0.8
-            case .done, .failed: 1
+            case .done, .alreadyAdded, .failed: 1
             }
         }
     }
@@ -481,21 +485,63 @@ final class Librarian {
         return item
     }
 
-    /// Accepts pasted text: a URL becomes a link, anything else a note.
-    func addPasted(_ text: String, space: Space? = nil) {
+    /// Accepts pasted text: a URL becomes a link, anything else a note. Returns false when nothing was added
+    /// because the link is already in the library and `onConflict` is `.keepBoth` (which, for a link, means
+    /// keep the one that's there).
+    @discardableResult
+    func addPasted(_ text: String, space: Space? = nil, onConflict: ConflictPolicy = .ask) -> Bool {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         if let url = URL(string: trimmed), url.scheme?.hasPrefix("http") == true, !trimmed.contains(" ") {
-            addLink(url, space: space)
+            return addLink(url, space: space, onConflict: onConflict) != nil
         } else if !trimmed.isEmpty {
             addNote(trimmed, space: space)
+            return true
+        }
+        return false
+    }
+
+    /// Saves a link. One already in the library (the same address, give or take a trailing slash or a
+    /// `#fragment`) is handled per `onConflict`: ask whether to replace it (fetching the page afresh) or skip,
+    /// replace it, or keep the saved one (`.keepBoth`; a second copy of a link is never useful). Returns nil when
+    /// the link wasn't added right away: it's waiting on the question, or the saved one was kept.
+    @discardableResult
+    func addLink(_ url: URL, comment: String = "", space: Space? = nil, onConflict: ConflictPolicy = .ask) -> Item? {
+        let batch = currentBatch()
+        let matches = existingLinks(to: url)
+        guard !matches.isEmpty else {
+            return startLink(url, comment: comment, space: space, replacing: [], batch: batch)
+        }
+        switch onConflict {
+        case .keepBoth:
+            return nil
+        case .replace:
+            return startLink(url, comment: comment, space: space, replacing: matches, batch: batch)
+        case .ask:
+            ask(Conflict(reason: .sameLink, fileName: url.absoluteString, matches: matches) { [weak self] replace in
+                guard let self, replace else { return }
+                startLink(url, comment: comment, space: space, replacing: matches, batch: batch)
+            })
+            return nil
         }
     }
 
+    /// Saves a link, taking the place of `replacing` (items with the same address). The new item keeps the
+    /// old one's space, tags, favorite and comment, so a refreshed link stays where it was.
     @discardableResult
-    func addLink(_ url: URL, comment: String = "", space: Space? = nil) -> Item {
+    private func startLink(_ url: URL, comment: String, space: Space?, replacing: [ExistingCopy], batch: Int) -> Item {
         let item = Item(kind: .link, title: url.host() ?? url.absoluteString, body: comment, urlString: url.absoluteString, space: space)
+        if let old = replacing.compactMap({ fetchItem($0.id) }).first {
+            if space == nil { item.space = old.space }
+            item.tags = old.tags
+            item.isFavorite = old.isFavorite
+            if comment.isEmpty { item.body = old.body }
+        }
         item.aiStatus = .importing
-        joinBatch(item)
+        joinBatch(item, serial: batch)
+        for copy in replacing { remove(copy.id) }
+        if !replacing.isEmpty, lastBatch?.files.contains(where: { $0.id == item.id }) == true {
+            lastBatch?.replaced += replacing.count
+        }
         insert(item)
         addTasks[item.id] = Task {
             await fetchPage(for: item)
@@ -522,38 +568,50 @@ final class Librarian {
         }
     }
 
-    func addImage(_ data: Data, fileExtension: String = "jpg", space: Space? = nil) {
+    /// Saves a photo or screenshot. One whose bytes are already in the library (the same screenshot pasted
+    /// twice) is handled per `onConflict`, like a file.
+    func addImage(_ data: Data, fileExtension: String = "jpg", space: Space? = nil, onConflict: ConflictPolicy = .ask) {
         let item = Item(kind: .image, space: space)
         joinBatch(item, title: "Image")
-        importAttachment(into: item, named: "Image") { try AttachmentStore.save(data, fileExtension: fileExtension) }
+        importAttachment(into: item, named: "Image", onConflict: onConflict) {
+            let name = try AttachmentStore.save(data, fileExtension: fileExtension)
+            return AttachmentStore.Stored(name: name, hash: AttachmentStore.hash(of: data))
+        }
     }
 
-    /// What to do when a file being added has the same name as one already in the library.
+    /// What to do when something being added is already in the library: a file with the same name, a file
+    /// with exactly the same contents under any name, or a link to the same address.
     enum ConflictPolicy {
-        /// Ask, through `conflict`: replace the copy that's there, or skip this file.
+        /// Ask, through `conflict`: replace the copy that's there, or skip this one.
         case ask
         case replace
-        /// Add it as another copy, without asking (Shortcuts and Siri have no window to ask in).
+        /// Don't ask (Shortcuts and Siri have no window to ask in). A file with a name already in the library
+        /// is added as another copy; one whose contents are already there, and a link already saved, are let
+        /// go, since a second copy of the very same thing adds nothing.
         case keepBoth
     }
 
     /// Adds any file. The tray shows it right away; it joins the library as soon as its copy is whole, and
     /// reading it (text, OCR, transcription) happens a few files at a time in the background.
     /// Pass `removeSourceWhenDone` for temporary copies (drops, Photos) so they're cleaned up after.
-    /// A file with the same name as one already in the library is handled per `onConflict`.
+    /// A file with the same name as one already in the library is handled per `onConflict` before it's copied;
+    /// one with the same contents as a file already there (under any name) is caught once its copy is whole,
+    /// since telling takes reading the whole file, and handled the same way.
     func addFile(_ url: URL, space: Space? = nil, removeSourceWhenDone: Bool = false, onConflict: ConflictPolicy = .ask) {
         let fileName = url.lastPathComponent
         // Decided now, so a file that waits on the conflict question still belongs with what it came in with.
         let batch = currentBatch()
         let matches = onConflict == .keepBoth ? [] : existingCopies(named: fileName)
         guard !matches.isEmpty, onConflict == .ask else {
-            startFile(url, space: space, removeSourceWhenDone: removeSourceWhenDone, replacing: matches, batch: batch)
+            startFile(url, space: space, removeSourceWhenDone: removeSourceWhenDone, replacing: matches, batch: batch,
+                      onConflict: onConflict)
             return
         }
-        ask(Conflict(fileName: fileName, matches: matches) { [weak self] replace in
+        ask(Conflict(reason: .sameName, fileName: fileName, matches: matches) { [weak self] replace in
             guard let self else { return }
             if replace {
-                startFile(url, space: space, removeSourceWhenDone: removeSourceWhenDone, replacing: matches, batch: batch)
+                startFile(url, space: space, removeSourceWhenDone: removeSourceWhenDone, replacing: matches, batch: batch,
+                          onConflict: onConflict)
             } else if removeSourceWhenDone {
                 AttachmentStore.removeTemporary(url)
             }
@@ -562,7 +620,8 @@ final class Librarian {
 
     /// Adds a file, taking the place of `replacing` (copies of it already in the library) once its copy is whole.
     /// The new item keeps the old one's space, tags and favorite, so a replaced file stays where it was.
-    private func startFile(_ url: URL, space: Space?, removeSourceWhenDone: Bool, replacing: [ExistingCopy], batch: Int) {
+    private func startFile(_ url: URL, space: Space?, removeSourceWhenDone: Bool, replacing: [ExistingCopy], batch: Int,
+                           onConflict: ConflictPolicy) {
         let type = UTType(filenameExtension: url.pathExtension) ?? .data
         let kind: ItemKind = type.conforms(to: .pdf) ? .pdf
             : type.conforms(to: .image) ? .image
@@ -577,7 +636,7 @@ final class Librarian {
         }
         joinBatch(item, title: url.lastPathComponent, serial: batch)
         importAttachment(into: item, named: url.lastPathComponent, removeSource: removeSourceWhenDone ? url : nil,
-                         replacing: replacing.map(\.id)) {
+                         replacing: replacing.map(\.id), onConflict: onConflict) {
             try AttachmentStore.importFile(at: url)
         }
     }
@@ -585,84 +644,169 @@ final class Librarian {
     /// Copies a file into the library, then adds the item and reads it. The item is only saved once its file
     /// is whole, so quitting mid-copy leaves nothing behind; quitting mid-read is picked up at the next launch.
     /// Items in `replacing` are removed at that same moment, so a copy that fails leaves them as they were.
+    /// Once the copy is whole its hash is known, and a file with the same bytes already in the library (under
+    /// any name) is handled per `onConflict`: asked about, replaced, or (`.keepBoth`) this copy is let go.
     private func importAttachment(into item: Item, named displayName: String, removeSource: URL? = nil,
-                                  replacing: [UUID] = [], copy: @escaping @Sendable () throws -> String) {
+                                  replacing: [UUID] = [], onConflict: ConflictPolicy,
+                                  copy: @escaping @Sendable () throws -> AttachmentStore.Stored) {
         item.aiStatus = .importing
         let symbol = item.kind.symbol
         setStage(id: item.id, title: displayName, symbol: symbol, .copying)
         addTasks[item.id] = Task {
             await Self.copies.acquire()
             // Cancelled while waiting its turn: don't copy a file nobody wants any more.
-            var name: String?
+            var stored: AttachmentStore.Stored?
             if !cancelledIDs.contains(item.id) {
-                name = await Task.detached(priority: .userInitiated) { try? copy() }.value
+                stored = await Task.detached(priority: .userInitiated) { try? copy() }.value
             }
             Self.copies.release()
             if cancelledIDs.contains(item.id) {
                 // Cancelled before it joined the library: nothing to keep.
-                AttachmentStore.delete(name)
-                if let removeSource { AttachmentStore.removeTemporary(removeSource) }
-                cancelledIDs.remove(item.id)
-                addTasks[item.id] = nil
+                letGo(item, stored: stored, removeSource: removeSource)
                 return
             }
-            guard let name else {
+            guard let stored else {
                 // The source stays where it is so Retry can copy it again; Remove lets it go.
                 addTasks[item.id] = nil
                 failedAdds[item.id] = FailedAdd(
                     again: { [weak self] in
                         self?.importAttachment(into: item, named: displayName, removeSource: removeSource,
-                                               replacing: replacing, copy: copy)
+                                               replacing: replacing, onConflict: onConflict, copy: copy)
                     },
                     cleanUp: { if let removeSource { AttachmentStore.removeTemporary(removeSource) } })
                 setStage(id: item.id, title: displayName, symbol: symbol, .failed("Couldn't copy \(displayName)"))
                 return
             }
-            if let removeSource { AttachmentStore.removeTemporary(removeSource) }
-            for id in replacing { remove(id) }
-            if !replacing.isEmpty, lastBatch?.files.contains(where: { $0.id == item.id }) == true {
-                lastBatch?.replaced += replacing.count
+            // The same bytes already in the library, apart from the copies this file is replacing anyway.
+            let sameContent = existingCopies(withHash: stored.hash, excluding: Set(replacing).union([item.id]))
+            guard !sameContent.isEmpty else {
+                await commit(item, stored: stored, removeSource: removeSource, replacing: replacing)
+                return
             }
-            item.attachmentName = name
-            insert(item)
-            await readAttachment(item)
-            if discardIfCancelled(item) { return }
-            await finishAdding(item)
+            switch onConflict {
+            case .keepBoth:
+                letGo(item, stored: stored, removeSource: removeSource)
+                setStage(id: item.id, title: displayName, symbol: symbol, .alreadyAdded)
+            case .replace:
+                await commit(item, stored: stored, removeSource: removeSource, replacing: replacing,
+                             alsoReplacing: sameContent)
+            case .ask:
+                // The copy sits in the library folder, unlisted, until the answer comes. Cancelling or erasing
+                // meanwhile marks the item cancelled; the answer then only cleans up.
+                ask(Conflict(reason: .sameContent, fileName: displayName, matches: sameContent) { [weak self] replace in
+                    guard let self else { return }
+                    if cancelledIDs.contains(item.id) || !replace {
+                        letGo(item, stored: stored, removeSource: removeSource)
+                        return
+                    }
+                    addTasks[item.id] = Task {
+                        await commit(item, stored: stored, removeSource: removeSource, replacing: replacing,
+                                     alsoReplacing: sameContent)
+                    }
+                })
+            }
         }
+    }
+
+    /// Drops a copy that won't be kept (cancelled, or the same file is already in the library) before it ever
+    /// joined the library, along with its temporary source.
+    private func letGo(_ item: Item, stored: AttachmentStore.Stored?, removeSource: URL?) {
+        AttachmentStore.delete(stored?.name)
+        if let removeSource { AttachmentStore.removeTemporary(removeSource) }
+        cancelledIDs.remove(item.id)
+        addTasks[item.id] = nil
+    }
+
+    /// The moment a copy becomes part of the library: the items it replaces go, it's saved, then read.
+    /// `alsoReplacing` are copies found by content once the file was whole; the new item takes on the first
+    /// one's space, tags and favorite, as it does for a copy replaced by name.
+    private func commit(_ item: Item, stored: AttachmentStore.Stored, removeSource: URL?, replacing: [UUID],
+                        alsoReplacing: [ExistingCopy] = []) async {
+        if let removeSource { AttachmentStore.removeTemporary(removeSource) }
+        if let old = alsoReplacing.compactMap({ fetchItem($0.id) }).first {
+            if item.space == nil { item.space = old.space }
+            if item.tags.isEmpty { item.tags = old.tags }
+            if old.isFavorite { item.isFavorite = true }
+        }
+        let replacing = replacing + alsoReplacing.map(\.id)
+        for id in replacing { remove(id) }
+        if !replacing.isEmpty, lastBatch?.files.contains(where: { $0.id == item.id }) == true {
+            lastBatch?.replaced += replacing.count
+        }
+        item.attachmentName = stored.name
+        item.contentHash = stored.hash
+        insert(item)
+        await readAttachment(item)
+        if discardIfCancelled(item) { return }
+        await finishAdding(item)
     }
 
     // MARK: Files already in the library
 
-    /// A copy of a file that's already in the library, or still in the tray after a failed copy.
+    /// A copy of a file (or a link) that's already in the library, or still in the tray after a failed copy.
     struct ExistingCopy {
         let id: UUID
         /// Didn't finish adding: its copy failed, it was cut off, the AI failed on it, or its file is missing.
         let isBroken: Bool
         /// Being copied in or read right now.
         let isInProgress: Bool
+        /// What it's called in the library, for the question that names it.
+        var title = ""
     }
 
     /// Every copy of a file with this name: items whose file came in under it, and tray entries whose copy
     /// of it failed. Names are compared the way Finder does, ignoring case.
     func existingCopies(named fileName: String) -> [ExistingCopy] {
-        var copies: [ExistingCopy] = []
         let items = (try? context?.fetch(FetchDescriptor<Item>(predicate: #Predicate { $0.attachmentName != nil }))) ?? []
-        for item in items {
-            guard let stored = item.attachmentName, let original = AttachmentStore.originalName(of: stored),
-                  original.caseInsensitiveCompare(fileName) == .orderedSame else { continue }
-            let failedInTray = activities.contains { $0.id == item.id && $0.stage.isFailed }
-            let missing = !AttachmentStore.hasFile(named: stored) && item.attachmentData == nil
-            let inProgress = addTasks[item.id] != nil && !failedInTray
-            let cutOff = (item.aiStatus == .importing || item.aiStatus == .processing) && !inProgress
-            copies.append(ExistingCopy(id: item.id,
-                                       isBroken: failedInTray || missing || cutOff || item.aiStatus == .failed,
-                                       isInProgress: inProgress))
-        }
+        var copies = existingCopies(of: items.filter { item in
+            guard let stored = item.attachmentName, let original = AttachmentStore.originalName(of: stored) else { return false }
+            return original.caseInsensitiveCompare(fileName) == .orderedSame
+        })
         for activity in activities where activity.stage.isFailed && failedAdds[activity.id] != nil
             && activity.title.caseInsensitiveCompare(fileName) == .orderedSame {
-            copies.append(ExistingCopy(id: activity.id, isBroken: true, isInProgress: false))
+            copies.append(ExistingCopy(id: activity.id, isBroken: true, isInProgress: false, title: activity.title))
         }
         return copies
+    }
+
+    /// Every item holding a file with exactly these bytes, whatever it's called, but for the ones in `excluding`.
+    func existingCopies(withHash hash: String, excluding: Set<UUID> = []) -> [ExistingCopy] {
+        let items = (try? context?.fetch(FetchDescriptor<Item>(predicate: #Predicate { $0.contentHash == hash }))) ?? []
+        return existingCopies(of: items.filter { !excluding.contains($0.id) })
+    }
+
+    /// Every link to this address. `https://example.com/a/`, `https://example.com/a` and `…/a#top` are one
+    /// address; the query string is kept, since it often picks the page.
+    func existingLinks(to url: URL) -> [ExistingCopy] {
+        let key = Self.linkKey(url)
+        let link = ItemKind.link.rawValue
+        let items = (try? context?.fetch(FetchDescriptor<Item>(predicate: #Predicate { $0.kindRaw == link }))) ?? []
+        return existingCopies(of: items.filter { $0.url.map(Self.linkKey) == key })
+    }
+
+    private static func linkKey(_ url: URL) -> String {
+        var parts = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        parts?.fragment = nil
+        parts?.scheme = parts?.scheme?.lowercased()
+        parts?.host = parts?.host?.lowercased()
+        var key = parts?.string ?? url.absoluteString
+        while key.hasSuffix("/") { key.removeLast() }
+        return key
+    }
+
+    /// The state of each item, as the conflict question describes it.
+    private func existingCopies(of items: [Item]) -> [ExistingCopy] {
+        items.map { item in
+            let failedInTray = activities.contains { $0.id == item.id && $0.stage.isFailed }
+            let missing = item.kind != .link && item.kind != .note
+                && !(item.attachmentName.map { AttachmentStore.hasFile(named: $0) } ?? false) && item.attachmentData == nil
+            let inProgress = addTasks[item.id] != nil && !failedInTray
+            let cutOff = (item.aiStatus == .importing || item.aiStatus == .processing) && !inProgress
+            return ExistingCopy(id: item.id,
+                                isBroken: failedInTray || missing || cutOff || item.aiStatus == .failed,
+                                isInProgress: inProgress,
+                                title: item.displayTitle)
+        }
     }
 
     /// Takes an item out of the library and the tray whatever state it's in: still copying in, waiting on or
@@ -690,17 +834,35 @@ final class Librarian {
         delete(item)
     }
 
-    /// A question for the user: a file being added has the same name as one already in the library.
+    /// A question for the user: something being added is already in the library.
     struct Conflict: Identifiable {
+        enum Reason {
+            /// A file with the same name is there.
+            case sameName
+            /// A file with exactly the same contents is there, perhaps under another name.
+            case sameContent
+            /// A link to the same address is there.
+            case sameLink
+        }
+
         let id = UUID()
+        let reason: Reason
+        /// The file's name, or the link's address.
         let fileName: String
         let matches: [ExistingCopy]
-        /// Called once with the answer: replace what's there (true) or skip this file (false).
+        /// Called once with the answer: replace what's there (true) or skip this one (false).
         let proceed: (Bool) -> Void
 
         var isBroken: Bool { matches.contains(where: \.isBroken) }
 
+        private var what: String { reason == .sameLink ? "link" : "file" }
+
         var title: String {
+            if reason == .sameLink {
+                if isBroken { return "This link didn't finish adding" }
+                if matches.contains(where: \.isInProgress) { return "This link is being added" }
+                return "This link is already in your library"
+            }
             if isBroken { return "“\(fileName)” didn't finish adding" }
             if matches.contains(where: \.isInProgress) { return "“\(fileName)” is being added" }
             return "“\(fileName)” is already in your library"
@@ -708,11 +870,26 @@ final class Librarian {
 
         var message: String {
             let copies = matches.count == 1 ? "the copy" : "the \(matches.count) copies"
-            if isBroken {
-                let what = matches.count == 1 ? "The copy" : "A copy"
-                return "\(what) in your library is incomplete. Replace \(copies) with the file you're adding, or skip this file and keep what's there."
+            let found: String
+            switch reason {
+            case .sameName:
+                found = ""
+            case .sameContent:
+                let names = matches.map(\.title).filter { !$0.isEmpty }
+                found = names.count == 1
+                    ? "A file with exactly the same contents is saved as “\(names[0])”. "
+                    : "A file with exactly the same contents is already saved. "
+            case .sameLink:
+                found = "“\(fileName)” is saved. "
             }
-            return "Replace \(copies) in your library with the file you're adding (its space, tags and favorite are kept), or skip this file."
+            if isBroken {
+                let incomplete = matches.count == 1 ? "The copy" : "A copy"
+                return "\(found)\(incomplete) in your library is incomplete. Replace \(copies) with the \(what) you're adding, or skip this \(what) and keep what's there."
+            }
+            if reason == .sameLink {
+                return "\(found)Replace it (the page is fetched again; its space, tags, favorite and comment are kept), or skip this link."
+            }
+            return "\(found)Replace \(copies) in your library with the file you're adding (its space, tags and favorite are kept), or skip this file."
         }
     }
 
@@ -942,7 +1119,10 @@ final class Librarian {
         guard !backfillRunning else { backfillAgain = true; return }
         backfillRunning = true
         Task {
-            await Task.detached(priority: .utility) { Self.copyAttachmentsIntoLibrary(container) }.value
+            await Task.detached(priority: .utility) {
+                Self.copyAttachmentsIntoLibrary(container)
+                Self.hashAttachments(container)
+            }.value
             backfillRunning = false
             if backfillAgain {
                 backfillAgain = false
@@ -971,6 +1151,37 @@ final class Librarian {
                       item.attachmentData == nil,
                       let data = try? Data(contentsOf: AttachmentStore.url(for: name), options: .mappedIfSafe) else { return }
                 item.attachmentData = data
+                try? context.save()
+            }
+        }
+    }
+
+    /// Items saved before content hashes were kept get theirs, one file at a time, so a duplicate of an old
+    /// file is caught too. Items another device added arrive with their hash. Skips items still being added
+    /// or organized; they're picked up on a later pass.
+    nonisolated private static func hashAttachments(_ container: ModelContainer) {
+        let processing = AIStatus.processing.rawValue
+        let pending = AIStatus.pending.rawValue
+        let importing = AIStatus.importing.rawValue
+        let ids = ((try? ModelContext(container).fetch(FetchDescriptor<Item>(predicate: #Predicate {
+            $0.attachmentName != nil && $0.contentHash == nil
+                && $0.aiStatusRaw != processing && $0.aiStatusRaw != pending && $0.aiStatusRaw != importing
+        }))) ?? []).map(\.id)
+        for id in ids {
+            autoreleasepool {
+                let context = ModelContext(container)
+                guard let item = try? context.fetch(FetchDescriptor<Item>(predicate: #Predicate { $0.id == id })).first,
+                      let name = item.attachmentName, item.contentHash == nil else { return }
+                let hash: String?
+                if AttachmentStore.hasFile(named: name) {
+                    hash = AttachmentStore.hash(ofFileNamed: name)
+                } else if let data = item.attachmentData {
+                    hash = AttachmentStore.hash(of: data)
+                } else {
+                    hash = nil
+                }
+                guard let hash else { return }
+                item.contentHash = hash
                 try? context.save()
             }
         }

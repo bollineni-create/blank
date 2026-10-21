@@ -62,6 +62,9 @@ final class Item {
     var isFavorite: Bool = false
     /// File name inside the app's attachments folder (this device's copy).
     var attachmentName: String?
+    /// SHA-256 of the attachment's bytes, as hex. Two items with the same hash hold the same file, whatever
+    /// it was called. Nil for items saved before hashes were kept; filled in on launch.
+    var contentHash: String?
     /// The attachment's bytes, so iCloud carries the file to your other devices.
     @Attribute(.externalStorage) var attachmentData: Data?
     @Attribute(.externalStorage) var thumbnail: Data?
