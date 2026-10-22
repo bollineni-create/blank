@@ -399,7 +399,12 @@ struct AIAvailabilityNotice: View {
             Image(systemName: "sparkles").foregroundStyle(Theme.accentInk)
             VStack(alignment: .leading, spacing: Theme.Space.s8) {
                 Text(Self.message(for: llm)).font(.callout).foregroundStyle(Theme.label)
-                if showsAction, llm.appleAvailability != .notReady {
+                if llm.isPaused {
+                    Button("Try now") { llm.retryNow() }
+                        .font(.callout.weight(.semibold))
+                        .foregroundStyle(Theme.accentInk)
+                        .buttonStyle(.plain)
+                } else if showsAction, llm.appleAvailability != .notReady {
                     Button("Open Settings") {
                         NotificationCenter.default.post(name: .loomOpenSettings, object: nil)
                     }
@@ -416,6 +421,7 @@ struct AIAvailabilityNotice: View {
 
     @MainActor
     static func message(for llm: LLMService) -> String {
+        if llm.isPaused { return "Apple Intelligence stopped responding. Loom will try again in a minute." }
         switch llm.appleAvailability {
         case .available:
             return "Apple Intelligence is ready."

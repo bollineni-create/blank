@@ -38,7 +38,7 @@ struct ActivityDot: View {
 
     var body: some View {
         let level = ActivityLevel.current(librarian, llm)
-        let headline = ActivityPanel.headline(level, librarian)
+        let headline = ActivityPanel.headline(level, librarian, llm)
         Button { showingPanel = true } label: {
             HStack(spacing: Theme.Space.s8) {
                 Circle()
@@ -106,13 +106,19 @@ struct ActivityPanel: View {
             HStack(spacing: Theme.Space.s8) {
                 Circle().fill(level.color).frame(width: 10, height: 10)
                 VStack(alignment: .leading, spacing: 2) {
-                    let headline = Self.headline(level, librarian, unlisted: unlisted)
+                    let headline = Self.headline(level, librarian, llm, unlisted: unlisted)
                     Text(headline).font(.subheadline.weight(.semibold))
                     if headline != Self.gettingReady {
                         Text(modelLine).font(.caption).foregroundStyle(Theme.labelSecondary).lineLimit(2)
                     }
                 }
                 Spacer(minLength: 0)
+                if llm.isPaused {
+                    Button("Try now") { llm.retryNow() }
+                        .font(.callout.weight(.medium))
+                        .buttonStyle(.plain)
+                        .foregroundStyle(Theme.accentInk)
+                }
             }
             .foregroundStyle(Theme.label)
             .padding(Theme.Space.s12)
@@ -273,13 +279,15 @@ struct ActivityPanel: View {
 
     /// `unlisted` counts broken files that have no row in the list; the panel passes it, the dot leaves it out.
     @MainActor
-    static func headline(_ level: ActivityLevel, _ librarian: Librarian, unlisted: Int = 0) -> String {
+    static func headline(_ level: ActivityLevel, _ librarian: Librarian, _ llm: LLMService, unlisted: Int = 0) -> String {
         let adding = librarian.activities.filter(\.stage.isAdding).count
         switch level {
         case .adding: return "Adding \(adding) \(adding == 1 ? "file" : "files")…"
         case .thinking:
             let n = max(librarian.processingCount, librarian.activities.filter { $0.stage == .queued || $0.stage == .summarizing }.count)
-            return n > 0 ? "AI is organizing \(n) \(n == 1 ? "item" : "items")…" : gettingReady
+            if n > 0 { return "AI is organizing \(n) \(n == 1 ? "item" : "items")…" }
+            // Paused by Loom after the model failed, not the system preparing it: say so, so it doesn't read as stuck.
+            return llm.isPaused ? "AI paused for a minute" : gettingReady
         case .ready:
             let failed = librarian.activities.filter(\.stage.isFailed).count + unlisted
             return failed > 0 ? "\(failed) \(failed == 1 ? "file needs" : "files need") attention" : "All caught up"
