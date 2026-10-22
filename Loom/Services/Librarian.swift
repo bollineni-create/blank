@@ -70,7 +70,8 @@ final class Librarian {
     private var organizing: (id: UUID, task: Task<Void, Never>)?
     /// Cancelled items, so late stage updates don't bring them back into the list.
     private var cancelledIDs: Set<UUID> = []
-    /// Items the model went quiet on once; they were put back in line, and a second time is marked failed.
+    /// Items the model went quiet on, or failed on, once; they were put back at the end of the line, and a
+    /// second time is marked failed.
     private var stalledOnce: Set<UUID> = []
     /// Files whose copy failed before they joined the library: how to try again, and how to let go.
     private struct FailedAdd {
@@ -1255,12 +1256,7 @@ final class Librarian {
                 backfillAttachmentsForSync()
             }
             while llm.isReady {
-                let pending = AIStatus.pending.rawValue
-                var descriptor = FetchDescriptor<Item>(
-                    predicate: #Predicate { $0.aiStatusRaw == pending },
-                    sortBy: [SortDescriptor(\.createdAt, order: .reverse)])
-                descriptor.fetchLimit = 1
-                guard let item = try? context.fetch(descriptor).first else { break }
+                guard let item = nextPendingItem(context) else { break }
                 // Claimed before the work starts, so the count below doesn't see it as still waiting.
                 item.aiStatus = .processing
                 let work = Task { await organize(item) }
@@ -1270,6 +1266,22 @@ final class Librarian {
                 organizing = nil
             }
         }
+    }
+
+    /// The newest item waiting for the AI. Items the model already stalled or failed on once go last: the
+    /// queue used to start with the newest every time, so an item the model chokes on was tried again and
+    /// again, a minute apart, and nothing behind it moved.
+    private func nextPendingItem(_ context: ModelContext) -> Item? {
+        let pending = AIStatus.pending.rawValue
+        var descriptor = FetchDescriptor<Item>(
+            predicate: #Predicate { $0.aiStatusRaw == pending },
+            sortBy: [SortDescriptor(\.createdAt, order: .reverse)])
+        guard !stalledOnce.isEmpty else {
+            descriptor.fetchLimit = 1
+            return try? context.fetch(descriptor).first
+        }
+        let items = (try? context.fetch(descriptor)) ?? []
+        return items.first { !stalledOnce.contains($0.id) } ?? items.first
     }
 
     /// How many items the AI still has to do: the one it's on, plus everything waiting.
@@ -1344,21 +1356,21 @@ final class Librarian {
             // Cancelled from the activity list: keep what the item had and don't summarize it.
             item.aiStatus = .skipped
             activities.removeAll { $0.id == item.id }
-        } catch let error as AppleModelError where error.isRuntimeFailure && !llm.isReady {
-            // The model stopped responding: wait for it instead of failing the item.
-            item.aiStatus = .pending
-            setStage(item, .waitingForModel, create: false)
-        } catch let error as AppleModelError where error.isTimeout {
-            // The model went quiet on this item, and is paused for a minute (see LLMService). The first time, the
-            // item goes back in line for when the model returns, so one hiccup doesn't leave a row of items to
-            // retry by hand; if it hangs on the same item again, that one is marked failed and Retry runs it.
+        } catch let error as AppleModelError where error.isTimeout || error.isRuntimeFailure {
+            // The model went quiet on this item, or stopped working, and is paused for a minute (see LLMService).
+            // The first time, the item goes to the back of the line for when the model returns, so one hiccup
+            // doesn't leave a row of items to retry by hand. If the model fails on the same item again, that one
+            // is marked failed and Retry runs it. Waiting on it forever froze the whole queue: the model came
+            // back, failed on this same item, paused again, and every other item sat at "Waiting".
             if stalledOnce.insert(item.id).inserted {
                 item.aiStatus = .pending
                 setStage(item, .waitingForModel, create: false)
             } else {
                 stalledOnce.remove(item.id)
                 item.aiStatus = .failed
-                setStage(item, .failed("Apple Intelligence didn't answer in time; try again"), create: false)
+                setStage(item, .failed(error.isTimeout ? "Apple Intelligence didn't answer in time; try again"
+                                                       : "Apple Intelligence couldn't read this one; try again"),
+                         create: false)
             }
         } catch {
             item.aiStatus = .failed

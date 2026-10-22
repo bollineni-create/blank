@@ -33,7 +33,7 @@ final class LLMService {
     /// Re-reads Apple Intelligence availability. While the model is getting ready (or away for a reason the
     /// system doesn't name), checks again shortly, so queued work carries on once it's back.
     func refreshAppleAvailability() {
-        guard !applePaused else { return }
+        guard !isPaused else { return }
         let wasReady = isReady
         appleAvailability = AppleModelEngine.availability
         availabilityRecheck?.cancel()
@@ -45,13 +45,24 @@ final class LLMService {
         scheduleAvailabilityRecheck(after: 20)
     }
 
-    /// Set after Apple's model fails at runtime even though the system reported it available.
-    private var applePaused = false
+    /// Set after Apple's model fails at runtime even though the system reported it available. The system
+    /// still says "available" then, so this is what tells "Loom is giving it a minute" apart from the model
+    /// downloading.
+    private(set) var isPaused = false
+
+    /// Ends a pause early, from the "Try now" buttons: checks the model again and, if it's there, the queue
+    /// carries on.
+    func retryNow() {
+        guard isPaused else { return }
+        availabilityRecheck?.cancel()
+        isPaused = false
+        refreshAppleAvailability()
+    }
 
     /// Treats Apple's model as "getting ready" for a minute, so work waits instead of failing over and over.
     /// After a hung call this also gives the system time to let that call go before the next one starts.
     private func pauseAppleModel() {
-        applePaused = true
+        isPaused = true
         appleAvailability = .notReady
         scheduleAvailabilityRecheck(after: 60)
     }
@@ -61,7 +72,7 @@ final class LLMService {
         availabilityRecheck = Task {
             try? await Task.sleep(for: .seconds(seconds))
             guard !Task.isCancelled else { return }
-            self.applePaused = false
+            self.isPaused = false
             self.refreshAppleAvailability()
         }
     }
