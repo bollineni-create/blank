@@ -80,6 +80,12 @@ For sync to work you need:
 
 The first sync can take a few minutes, and large attachments take longer. The iOS Simulator only syncs when the app opens, because it gets no push notifications.
 
+## Web version
+
+`web/` is the browser version of Loom that runs at [bollineni.co/loom](https://bollineni.co/loom/). It's plain HTML, CSS and JavaScript with no build step, and keeps the library in the browser (IndexedDB). Claude organizes items and answers questions there, through `api/loom.js` in [dash-board](https://github.com/bollineni-create/dash-board), which also reads saved links.
+
+The launcher pulls `web/` from this repo's main branch, the same way it pulls every other app. Each push to main runs `.github/workflows/notify-dash-board.yml`, which tells dash-board to redeploy straight away when this repo has a `DASH_BOARD_TOKEN` secret; without it the site still catches up on its five-minute check. To preview it locally, run `python3 -m http.server` in `web/` (saving, search and the map work; summaries and Ask need the hosted routes).
+
 ## How it's put together
 
 ```
@@ -119,5 +125,5 @@ Plain SwiftUI and SwiftData, with no third-party packages. Apple's frameworks do
 ## Credits
 
 - **AI:** Apple Intelligence and the Foundation Models framework, entirely on the device.
-- **Fonts:** Archivo, Bricolage Grotesque, Cormorant Garamond, DM Serif Display, Figtree, IBM Plex Sans and Mono, Libre Caslon Text, Newsreader and Space Mono, bundled under the SIL Open Font License (licence files in `Loom/Resources/Fonts`).
+- **Fonts:** Archivo, Bricolage Grotesque, Cormorant Garamond, DM Serif Display, Figtree, IBM Plex Sans and Mono, Libre Caslon Text, Newsreader and Space Mono, bundled under the SIL Open Font License (licence files in `Loom/Resources/Fonts`; the web version's Figtree and DM Serif Display are in `web/assets/fonts`).
 - **Inspiration:** [Fabric](https://apps.apple.com/us/app/fabric-your-second-brain/id6449003046).

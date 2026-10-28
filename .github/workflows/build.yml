@@ -2,7 +2,9 @@ name: Build
 
 on:
   push:
+    paths-ignore: ['web/**']
   pull_request:
+    paths-ignore: ['web/**']
   workflow_dispatch:
 
 jobs:
