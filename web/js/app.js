@@ -239,5 +239,11 @@
   refresh();
   DB.persist();
   Lib.checkAI();
+  if (typeof LoomSync !== 'undefined' && LoomSync) {
+    // The sync panel opens over the page, so the settings dialog (which sits above everything) closes first.
+    $('#set-sync [data-sync-open]').addEventListener('click', () => $('#dlg-settings').close(), true);
+    BollineniSync.mountButton($('#set-sync'), LoomSync.engine, { app: 'loom', tint: '#E07A52' });
+    LoomSync.start().catch(() => {});
+  }
   matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => Web.rebuild());
 })();

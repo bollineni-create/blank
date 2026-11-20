@@ -86,6 +86,8 @@ The first sync can take a few minutes, and large attachments take longer. The iO
 
 The launcher pulls `web/` from this repo's main branch, the same way it pulls every other app. Each push to main runs `.github/workflows/notify-dash-board.yml`, which tells dash-board to redeploy straight away when this repo has a `DASH_BOARD_TOKEN` secret; without it the site still catches up on its five-minute check. To preview it locally, run `python3 -m http.server` in `web/` (saving, search and the map work; summaries and Ask need the hosted routes).
 
+**Sync across devices, with no account.** On bollineni.co, **Settings → Sync across devices** keeps the library, spaces, Ask conversations and settings the same on every linked device, with the site's other apps. Link a device by scanning the QR code in the sync panel, sharing the link, or typing the code. Photos, PDFs, videos and other files up to 25 MB sync too, each encrypted with its own key and fetched in the background (or when opened). Everything is encrypted in the browser first; the server stores text it can't read. Deleting or erasing with sync on empties the other devices too. `web/js/sync.js` connects Loom to the site's `/sync/kit.js`; opened anywhere else, sync is left out.
+
 ## How it's put together
 
 ```

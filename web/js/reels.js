@@ -38,7 +38,7 @@ const Reels = (() => {
   async function play(slide) {
     const v = $('video', slide);
     if (!v.src) {
-      const b = await DB.get('blobs', slide.dataset.id);
+      const b = await DB.file(slide.dataset.id);
       if (!b) { $('.reel-over', slide).insertAdjacentHTML('afterbegin', '<p>This video isn’t stored in this browser.</p>'); return; }
       const u = URL.createObjectURL(b); urls.push(u); v.src = u;
     }

@@ -31,7 +31,7 @@ const DB = (() => {
       t.onabort = () => rej(t.error || new Error('Storage is full.'));
     });
   }
-  return {
+  const api = {
     all: (store) => tx(store, 'readonly', (s) => s.getAll()),
     get: (store, key) => tx(store, 'readonly', (s) => s.get(key)),
     put: (store, value, key) => tx(store, 'readwrite', (s) => (key === undefined ? s.put(value) : s.put(value, key))),
@@ -40,4 +40,7 @@ const DB = (() => {
     estimate: async () => (navigator.storage?.estimate ? navigator.storage.estimate() : null),
     persist: () => navigator.storage?.persist?.().catch(() => false),
   };
+  // A saved file: from this browser, or fetched from sync when another device saved it.
+  api.file = async (id) => (await api.get('blobs', id)) || (typeof LoomSync !== 'undefined' && LoomSync ? LoomSync.fileFor(id).catch(() => null) : null);
+  return api;
 })();
