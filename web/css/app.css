@@ -243,6 +243,11 @@ dialog textarea:focus, dialog input:focus { border-color: var(--accent); }
 .actions .spacer { flex: 1; }
 .check { display: flex; gap: 10px; align-items: center; }
 .check input { width: 18px; height: 18px; accent-color: var(--accent); }
+.set-sync { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line, rgba(127,127,127,.25)); border-bottom: 1px solid var(--line, rgba(127,127,127,.25)); }
+.set-sync[hidden] { display: none; }
+.set-sync .grow { flex: 1; display: grid; gap: 2px; }
+.set-sync small { font-size: 13px; opacity: .7; }
+.set-sync[data-sync-state="idle"] b::after, .set-sync[data-sync-state="syncing"] b::after { content: ''; display: inline-block; width: 7px; height: 7px; margin-left: 8px; border-radius: 50%; background: #3ddc84; vertical-align: 2px; }
 .set-spaces { display: grid; gap: 6px; }
 .set-spaces .row { display: flex; align-items: center; gap: 8px; font-size: 14px; }
 .set-spaces .row span { flex: 1; }

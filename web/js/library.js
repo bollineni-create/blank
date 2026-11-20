@@ -11,6 +11,7 @@ const Lib = (() => {
   async function load() {
     const [items, spaces, chats, settings] = await Promise.all([DB.all('items'), DB.all('spaces'), DB.all('chats'), DB.get('kv', 'settings')]);
     state.items = items.sort((a, b) => b.createdAt - a.createdAt);
+    byId.clear();
     state.items.forEach((i) => byId.set(i.id, i));
     state.spaces = spaces.sort((a, b) => a.createdAt - b.createdAt);
     state.chats = chats.sort((a, b) => b.updatedAt - a.updatedAt);
@@ -186,7 +187,7 @@ const Lib = (() => {
     if (item.body) parts.push((item.kind === 'note' ? '' : 'The user’s note: ') + item.body);
     if (item.kind === 'file' && item.text) parts.push('File contents:\n' + item.text.slice(0, 20000));
     if (item.kind === 'image' || item.kind === 'video' || item.kind === 'pdf') {
-      const blob = await DB.get('blobs', item.id);
+      const blob = await DB.file(item.id);
       if (!blob) throw Object.assign(new Error('The file is missing.'), { reason: 'skip' });
       if (item.kind === 'image') {
         const jpg = await scaleImage(blob, 1568, 0.85);
@@ -262,6 +263,7 @@ const Lib = (() => {
     chat.updatedAt = Date.now();
     if (!state.chats.includes(chat)) state.chats.unshift(chat);
     await DB.put('chats', chat);
+    emit('chats');
   }
 
   async function ask(chat, question) {
@@ -289,6 +291,7 @@ const Lib = (() => {
   async function removeChat(id) {
     state.chats = state.chats.filter((c) => c.id !== id);
     await DB.del('chats', id);
+    emit('chats');
   }
 
   // ---- Export / erase / samples ------------------------------------------------------------

@@ -49,7 +49,7 @@ const Panels = (() => {
 
   let blobURLs = [];
   async function blobURL(id) {
-    const b = await DB.get('blobs', id);
+    const b = await DB.file(id);
     if (!b) return '';
     const u = URL.createObjectURL(b); blobURLs.push(u); return u;
   }
@@ -108,8 +108,8 @@ const Panels = (() => {
       else if (act === 'regen') Lib.regenerate(i);
       else if (act === 'delete') { close(); Lib.remove(i.id); }
       else if (act === 'openfile') {
-        const b = await DB.get('blobs', i.id);
-        if (!b) return toast('The file isn’t in this browser any more.');
+        const b = await DB.file(i.id);
+        if (!b) return toast('The file isn’t in this browser, and isn’t synced from another device.');
         const u = URL.createObjectURL(i.kind === 'pdf' ? new Blob([b], { type: 'application/pdf' }) : b);
         if (i.kind === 'pdf') window.open(u, '_blank', 'noopener');
         else { const a = document.createElement('a'); a.href = u; a.download = i.fileName || 'file'; a.click(); }
@@ -420,6 +420,10 @@ const Panels = (() => {
     const est = await DB.estimate().catch(() => null);
     const n = Lib.state.items.length;
     $('#set-usage').textContent = `${n} ${n === 1 ? 'item' : 'items'}${est?.usage ? ` · about ${fmtSize(est.usage)} used in this browser` : ''}.`;
+    const synced = typeof LoomSync !== 'undefined' && LoomSync && LoomSync.status().on;
+    $('#set-privacy').textContent = synced
+      ? 'Your library syncs between your linked devices, encrypted in this browser before it leaves; the server can’t read it. To organize an item or answer a question, Loom sends that item’s text (or the image or PDF) to Claude through this site’s server; nothing is kept there.'
+      : 'Your library stays in this browser. To organize an item or answer a question, Loom sends that item’s text (or the image or PDF) to Claude through this site’s server; nothing is kept there.';
     dlgSet.showModal();
   }
   function drawSpaces() {
@@ -440,7 +444,8 @@ const Panels = (() => {
     const a = e.target.closest('[data-action]')?.dataset.action;
     if (a === 'export') Lib.exportJSON();
     if (a === 'erase') {
-      if (!confirm('Erase everything in your Loom library on this browser? This can’t be undone.')) return;
+      const synced = typeof LoomSync !== 'undefined' && LoomSync && LoomSync.status().on;
+      if (!confirm(`Erase everything in your Loom library on this browser? This can’t be undone.${synced ? ' Sync is on, so your other devices empty too.' : ''}`)) return;
       dlgSet.close(); close();
       await Lib.erase();
       toast('Library erased');
