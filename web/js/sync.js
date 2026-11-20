@@ -23,7 +23,9 @@ const LoomSync = (() => {
     const { thumb, ...rest } = i;
     const out = { ...rest, ai: i.ai === 'processing' ? 'pending' : i.ai };
     if (typeof out.text === 'string' && out.text.length > TEXT_MAX) out.text = out.text.slice(0, TEXT_MAX);
-    if (i.kind === 'video' && typeof thumb === 'string' && thumb.length < THUMB_MAX) out.thumb = thumb;
+    // Only a real poster travels; a video the browser couldn't draw a frame from has thumb '' and
+    // sends none (an empty one used to make every other device reject the whole item).
+    if (i.kind === 'video' && typeof thumb === 'string' && thumb && thumb.length < THUMB_MAX) out.thumb = thumb;
     return out;
   }
   function read() {
@@ -49,7 +51,8 @@ const LoomSync = (() => {
     if (col === 'items') {
       if (v.id !== id || !Object.hasOwn(KINDS, v.kind) || !Number.isFinite(v.createdAt)) return null;
       if (!SAFE_URL(v.url) || !SAFE_URL(v.image)) return null;
-      if (v.thumb != null && !(str(v.thumb, THUMB_MAX) && v.thumb.startsWith('data:image/jpeg;base64,'))) return null;
+      // A video with no poster may arrive with thumb '' from a device on an older version: take it.
+      if (v.thumb != null && v.thumb !== '' && !(str(v.thumb, THUMB_MAX) && v.thumb.startsWith('data:image/jpeg;base64,'))) return null;
       for (const k of ['title', 'body', 'summary', 'space', 'fileName', 'fileType', 'pageTitle', 'description', 'aiError', 'linkError']) if (v[k] != null && !str(v[k], 200000)) return null;
       if (v.text != null && !str(v.text, TEXT_MAX)) return null;
       if (!strings(v.tags || [], 60, 80) || !strings(v.userTags || [], 60, 80) || !strings(v.takeaways || [], 20, 600)) return null;
