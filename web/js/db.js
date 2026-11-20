@@ -31,10 +31,24 @@ const DB = (() => {
       t.onabort = () => rej(t.error || new Error('Storage is full.'));
     });
   }
+  // Files. Safari won't store a Blob in IndexedDB when it keeps nothing on disk (Private Browsing,
+  // and in-app browsers such as Gmail's or Instagram's), and the save fails with no error at all.
+  // Its bytes store fine, so a file that won't go in as a Blob goes in as { bytes, type, name } and
+  // comes back out as a Blob. Without this, uploads there fail and synced files never arrive.
+  async function putBlob(blob, key) {
+    try { return await tx('blobs', 'readwrite', (s) => s.put(blob, key)); }
+    catch (e) {
+      if (!(blob instanceof Blob)) throw e;
+      const bytes = await blob.arrayBuffer();
+      return tx('blobs', 'readwrite', (s) => s.put({ bytes, type: blob.type || '', name: blob.name || '' }, key));
+    }
+  }
+  const asBlob = (v) => (v && !(v instanceof Blob) && v.bytes instanceof ArrayBuffer
+    ? (v.name ? new File([v.bytes], v.name, { type: v.type }) : new Blob([v.bytes], { type: v.type })) : v);
   const api = {
     all: (store) => tx(store, 'readonly', (s) => s.getAll()),
-    get: (store, key) => tx(store, 'readonly', (s) => s.get(key)),
-    put: (store, value, key) => tx(store, 'readwrite', (s) => (key === undefined ? s.put(value) : s.put(value, key))),
+    get: async (store, key) => { const v = await tx(store, 'readonly', (s) => s.get(key)); return store === 'blobs' ? asBlob(v) : v; },
+    put: (store, value, key) => (store === 'blobs' ? putBlob(value, key) : tx(store, 'readwrite', (s) => (key === undefined ? s.put(value) : s.put(value, key)))),
     del: (store, key) => tx(store, 'readwrite', (s) => s.delete(key)),
     clear: async () => { for (const s of STORES) await tx(s, 'readwrite', (st) => st.clear()); },
     estimate: async () => (navigator.storage?.estimate ? navigator.storage.estimate() : null),
