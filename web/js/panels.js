@@ -420,8 +420,63 @@ const Panels = (() => {
     const est = await DB.estimate().catch(() => null);
     const n = Lib.state.items.length;
     $('#set-usage').textContent = `${n} ${n === 1 ? 'item' : 'items'}${est?.usage ? ` · about ${fmtSize(est.usage)} used in this browser` : ''}.`;
+    drawSync();
     dlgSet.showModal();
   }
+
+  // Sync across devices (js/sync.js). Only the hosted site has the storage for it; anywhere else
+  // the section stays hidden.
+  function syncLine(st) {
+    if (st.transfer) return `${st.transfer.dir === 'up' ? 'Uploading' : 'Downloading'} ${esc(st.transfer.name)}${st.transfer.of > 1 ? ` (${st.transfer.part} of ${st.transfer.of})` : ''}…`;
+    if (st.phase === 'syncing') return 'Syncing…';
+    if (st.phase === 'error' && st.problem) return esc(st.problem.message);
+    return st.syncedAt ? `Up to date. Last synced ${relTime(st.syncedAt)}.` : 'Up to date.';
+  }
+  function drawSync() {
+    const box = $('#set-sync');
+    box.hidden = !Sync.available;
+    const st = Sync.status();
+    $('#set-privacy').textContent = st.on
+      ? 'Your library is kept in this browser and synced, encrypted with your sync code, to your other devices. The site stores only the encrypted copy. To organize an item or answer a question, Loom sends that item to Claude through this site’s server; nothing is kept there.'
+      : 'Your library stays in this browser. To organize an item or answer a question, Loom sends that item’s text (or the image or PDF) to Claude through this site’s server; nothing is kept there.';
+    if (!Sync.available) { box.innerHTML = ''; return; }
+    if (box.contains(document.activeElement) && document.activeElement.id === 'sync-code') return; // don't wipe what's being typed
+    box.innerHTML = !st.on ? `<div class="label">Sync across devices</div>
+      <p class="small muted">Keep the same library, files included, on your phone, tablet and computers. There’s no account: this device gets a sync code, and you enter it on the others. Everything is encrypted with the code before it leaves this device.</p>
+      <div class="row"><button type="button" class="btn small primary" data-sync="on">Turn on sync</button></div>
+      <div class="row sync-join"><input id="sync-code" placeholder="Have a code? XXXXX-XXXXX-…" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="40" aria-label="Sync code"><button type="button" class="btn small ghost" data-sync="join">Join</button></div>`
+      : `<div class="label">Sync across devices</div>
+      <div class="row"><span class="small" id="sync-line">${syncLine(st)}</span><button type="button" class="btn small ghost" data-sync="now">Sync now</button></div>
+      <p class="small muted">Your sync code. Enter it in Loom’s settings on another device to sync it too. Anyone with this code can read and change your library, so keep it private.</p>
+      <div class="row"><code class="sync-code">${esc(st.code)}</code><button type="button" class="btn small ghost" data-sync="copy">Copy</button></div>
+      <div class="row"><button type="button" class="btn small ghost" data-sync="off">Turn off on this device</button><button type="button" class="btn small danger" data-sync="erase">Erase synced copy</button></div>`;
+  }
+  function syncChanged() {
+    if (!dlgSet.open) return;
+    const line = $('#sync-line');
+    const st = Sync.status();
+    if (line && st.on) line.innerHTML = syncLine(st); else drawSync();
+  }
+  $('#set-sync').addEventListener('click', async (e) => {
+    const a = e.target.closest('[data-sync]')?.dataset.sync;
+    if (!a) return;
+    const b = e.target.closest('button');
+    const busy = (p) => { b.disabled = true; return p.finally(() => { b.disabled = false; drawSync(); }); };
+    if (a === 'on') busy(Sync.create().then(() => toast('Sync is on. Enter the code on your other devices.'), (err) => toast(err.message)));
+    if (a === 'join') {
+      const code = $('#sync-code').value;
+      if (!code.trim()) return $('#sync-code').focus();
+      busy(Sync.join(code).then(() => toast('This device is syncing'), (err) => toast(err.message)));
+    }
+    if (a === 'now') Sync.now();
+    if (a === 'copy') navigator.clipboard?.writeText(Sync.status().code).then(() => toast('Copied'), () => toast('Couldn’t copy. Select the code instead.'));
+    if (a === 'off') { if (confirm('Stop syncing on this device? Your library stays here and on your other devices.')) busy(Sync.leave().then(() => toast('Sync is off on this device'))); }
+    if (a === 'erase') {
+      if (!confirm('Delete the synced copy of your library, files included, from this site? Every device keeps what it has and stops syncing.')) return;
+      busy(Sync.erase().then(() => toast('Synced copy erased'), (err) => toast(err.message)));
+    }
+  });
+  $('#set-sync').addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.id === 'sync-code') { e.preventDefault(); $('[data-sync="join"]', dlgSet).click(); } });
   function drawSpaces() {
     $('#set-spaces').innerHTML = Lib.state.spaces.length ? `<div class="label">Spaces</div>${Lib.state.spaces.map((s) => `<div class="row"><span>${esc(s.emoji + ' ' + s.name)}</span><button type="button" class="btn small ghost" data-rmspace="${s.id}">Remove</button></div>`).join('')}` : '';
   }
@@ -440,8 +495,12 @@ const Panels = (() => {
     const a = e.target.closest('[data-action]')?.dataset.action;
     if (a === 'export') Lib.exportJSON();
     if (a === 'erase') {
-      if (!confirm('Erase everything in your Loom library on this browser? This can’t be undone.')) return;
+      const synced = Sync.status().on;
+      if (!confirm(synced
+        ? 'Erase everything in your Loom library on this browser? Sync turns off here first, so your other devices and the synced copy keep everything. To delete the synced copy too, use Erase synced copy.'
+        : 'Erase everything in your Loom library on this browser? This can’t be undone.')) return;
       dlgSet.close(); close();
+      if (synced) await Sync.leave();
       await Lib.erase();
       toast('Library erased');
     }
@@ -451,7 +510,7 @@ const Panels = (() => {
   return {
     onChange: (fn) => { cb.change = fn; },
     get current() { return cur; },
-    render, close, openItem, openConcept, openSpace, ask, capture, settings, statusPopover, closePopover,
+    render, close, openItem, openConcept, openSpace, ask, capture, settings, statusPopover, closePopover, syncChanged,
     openAsk: () => show({ type: 'ask', chat: cur?.type === 'ask' ? cur.chat : Lib.state.chats[0] && !Lib.state.chats[0].messages.length ? Lib.state.chats[0] : { id: uid(), title: '', messages: [], updatedAt: Date.now() } }),
     editing: () => cur?.type === 'item' && body.contains(document.activeElement) && /TEXTAREA|INPUT/.test(document.activeElement.tagName),
   };

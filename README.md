@@ -86,6 +86,10 @@ The first sync can take a few minutes, and large attachments take longer. The iO
 
 The launcher pulls `web/` from this repo's main branch, the same way it pulls every other app. Each push to main runs `.github/workflows/notify-dash-board.yml`, which tells dash-board to redeploy straight away when this repo has a `DASH_BOARD_TOKEN` secret; without it the site still catches up on its five-minute check. To preview it locally, run `python3 -m http.server` in `web/` (saving, search and the map work; summaries and Ask need the hosted routes).
 
+**Sync across devices (web).** Settings → *Sync across devices* keeps the same library, files included, in every browser you use: phone, tablet and computers. There's no account. *Turn on sync* gives this browser a 25-character code; enter it in Loom's settings on another device and the two libraries merge. Everything is encrypted with the code on the device before it's sent, through dash-board's `/sync/api/loom` and `/sync/api/loom-files` (the same encrypted store Gridline uses), so the site keeps only text it can't read. Each item, space, conversation and setting carries the time it last changed, and the later change wins; a deletion is remembered for 90 days so it doesn't come back from another device. Files (images, videos, PDFs, anything else up to 100 MB) go up and come down in the background, a chunk at a time, with progress in the tray at the top. Browsers check for changes when Loom comes back into view, when they reconnect, and every minute while it's open. *Turn off on this device* keeps the library here; *Erase synced copy* deletes it from the site, and every device keeps what it has. This is separate from the iCloud sync of the Mac and iPhone apps. The code is in `web/js/sync.js`.
+
+Safari keeps nothing on disk in Private Browsing and in some in-app browsers (LinkedIn's, for one), and there IndexedDB refuses to store a file as a Blob. `web/js/db.js` then stores its bytes instead, so uploads save there too instead of failing with "out of room".
+
 ## How it's put together
 
 ```

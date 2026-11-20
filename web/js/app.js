@@ -40,7 +40,9 @@
   function tray() {
     const working = Lib.state.items.filter((i) => i.ai === 'processing' || i.reading);
     const extra = Lib.busy() - working.length;
-    $('#tray').innerHTML = working.slice(0, 3).map((i) => `<div class="tray-item"><span class="spin"></span><span class="lbl">${i.reading ? 'Reading' : 'Organizing'} ${esc(displayTitle(i))}</span></div>`).join('') +
+    const t = Sync.status().transfer;
+    const moving = t ? `<div class="tray-item"><span class="spin"></span><span class="lbl">${t.dir === 'up' ? 'Syncing' : 'Fetching'} ${esc(t.name)}${t.of > 1 ? ` · ${t.part} of ${t.of}` : ''}</span></div>` : '';
+    $('#tray').innerHTML = moving + working.slice(0, 3).map((i) => `<div class="tray-item"><span class="spin"></span><span class="lbl">${i.reading ? 'Reading' : 'Organizing'} ${esc(displayTitle(i))}</span></div>`).join('') +
       (extra > 0 ? `<div class="tray-item"><span class="lbl">${extra} more waiting</span></div>` : '');
   }
   function empty() {
@@ -239,5 +241,7 @@
   refresh();
   DB.persist();
   Lib.checkAI();
+  Sync.on(() => { tray(); Panels.syncChanged(); });
+  Sync.init();
   matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => Web.rebuild());
 })();

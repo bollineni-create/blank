@@ -28,12 +28,12 @@ const Lib = (() => {
     item.updatedAt = Date.now();
     if (!byId.has(item.id)) { state.items.unshift(item); byId.set(item.id, item); }
     await DB.put('items', item);
-    if (!quiet) emit('items', item);
+    emit(quiet ? 'dirty' : 'items', item);
     return item;
   }
 
   async function saveSettings(patch) {
-    Object.assign(state.settings, patch);
+    Object.assign(state.settings, patch, { updatedAt: Date.now() });
     await DB.put('kv', state.settings, 'settings');
     emit('settings');
   }
@@ -109,18 +109,21 @@ const Lib = (() => {
     state.items = state.items.filter((i) => i.id !== id);
     byId.delete(id);
     await DB.del('items', id); await DB.del('blobs', id);
+    emit('removed', { store: 'items', id });
     emit('items');
     toast('Deleted “' + displayTitle(item).slice(0, 40) + '”', { label: 'Undo', run: async () => {
       if (blob) await DB.put('blobs', blob, id);
-      byId.set(id, item); state.items.push(item); state.items.sort((a, b) => b.createdAt - a.createdAt);
-      await DB.put('items', item); emit('items', item);
+      // Saved as a fresh change, so it also comes back on synced devices.
+      await save(item, true);
+      state.items.sort((a, b) => b.createdAt - a.createdAt);
+      emit('items', item);
     } });
   }
 
   // ---- Spaces ------------------------------------------------------------------------------
 
   async function addSpace(emoji, name) {
-    const s = { id: uid(), emoji: emoji || '📁', name: name.trim().slice(0, 40), createdAt: Date.now() };
+    const s = { id: uid(), emoji: emoji || '📁', name: name.trim().slice(0, 40), createdAt: Date.now(), updatedAt: Date.now() };
     state.spaces.push(s);
     await DB.put('spaces', s);
     emit('spaces');
@@ -129,6 +132,7 @@ const Lib = (() => {
   async function removeSpace(id) {
     state.spaces = state.spaces.filter((s) => s.id !== id);
     await DB.del('spaces', id);
+    emit('removed', { store: 'spaces', id });
     for (const i of state.items) if (i.space === id) { i.space = ''; await save(i, true); }
     emit('spaces'); emit('items');
   }
@@ -262,6 +266,7 @@ const Lib = (() => {
     chat.updatedAt = Date.now();
     if (!state.chats.includes(chat)) state.chats.unshift(chat);
     await DB.put('chats', chat);
+    emit('chats', chat);
   }
 
   async function ask(chat, question) {
@@ -289,6 +294,52 @@ const Lib = (() => {
   async function removeChat(id) {
     state.chats = state.chats.filter((c) => c.id !== id);
     await DB.del('chats', id);
+    emit('removed', { store: 'chats', id });
+  }
+
+  // ---- Changes from another device (js/sync.js) --------------------------------------------
+  // Written as they arrived: their own times are kept, so they don't read as new changes here.
+
+  async function applyRemote(c) {
+    for (const item of c.items) {
+      const old = byId.get(item.id);
+      if (old && old.kind !== item.kind) await DB.del('blobs', item.id);
+      if (old) state.items[state.items.indexOf(old)] = item; else state.items.push(item);
+      byId.set(item.id, item);
+      await DB.put('items', item);
+    }
+    for (const id of c.removedItems) {
+      byId.delete(id);
+      await DB.del('items', id); await DB.del('blobs', id);
+    }
+    if (c.removedItems.length) state.items = state.items.filter((i) => byId.has(i.id));
+    state.items.sort((a, b) => b.createdAt - a.createdAt);
+    for (const s of c.spaces) {
+      const at = state.spaces.findIndex((x) => x.id === s.id);
+      if (at >= 0) state.spaces[at] = s; else state.spaces.push(s);
+      await DB.put('spaces', s);
+    }
+    for (const id of c.removedSpaces) { state.spaces = state.spaces.filter((s) => s.id !== id); await DB.del('spaces', id); }
+    state.spaces.sort((a, b) => a.createdAt - b.createdAt);
+    for (const chat of c.chats) {
+      const at = state.chats.findIndex((x) => x.id === chat.id);
+      if (at >= 0) state.chats[at] = chat; else state.chats.push(chat);
+      await DB.put('chats', chat);
+    }
+    for (const id of c.removedChats) { state.chats = state.chats.filter((x) => x.id !== id); await DB.del('chats', id); }
+    state.chats.sort((a, b) => b.updatedAt - a.updatedAt);
+    if (c.settings) { Object.assign(state.settings, c.settings); await DB.put('kv', state.settings, 'settings'); emit('settings'); }
+    if (c.spaces.length || c.removedSpaces.length) emit('spaces');
+    if (c.items.length || c.removedItems.length || c.removedSpaces.length) emit('items');
+  }
+
+  // A synced file finished downloading: give the item its thumbnail back, without a new change time.
+  async function fileArrived(item, blob) {
+    if (!item.thumb && item.kind === 'image') item.thumb = (await scaleImage(blob, 400, 0.78, true)) || '';
+    if (!item.thumb && item.kind === 'video') item.thumb = await videoThumb(blob);
+    if (!byId.has(item.id)) return;
+    await DB.put('items', item);
+    emit('items', item);
   }
 
   // ---- Export / erase / samples ------------------------------------------------------------
@@ -342,6 +393,6 @@ const Lib = (() => {
   return {
     state, byId, on: (fn) => listeners.add(fn), load, checkAI, save, saveSettings, addText, addFile, remove,
     addSpace, removeSpace, space, tagCounts, enqueue, regenerate, busy, search, ask, saveChat, removeChat,
-    exportJSON, erase, addSamples, readLink,
+    exportJSON, erase, addSamples, readLink, applyRemote, fileArrived,
   };
 })();

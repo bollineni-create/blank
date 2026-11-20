@@ -103,6 +103,7 @@
       <label class="check"><input type="checkbox" id="set-auto"> Organize new items with Claude</label>
       <label class="field"><span>Appearance</span><select id="set-theme"><option value="">Match the system</option><option value="light">Light</option><option value="dark">Dark</option></select></label>
       <div id="set-spaces" class="set-spaces"></div>
+      <div id="set-sync" class="set-sync" hidden></div>
       <p class="small muted" id="set-privacy">Your library stays in this browser. To organize an item or answer a question, Loom sends that item’s text (or the image or PDF) to Claude through this site’s server; nothing is kept there.</p>
       <p class="small muted" id="set-usage"></p>
       <div class="actions"><button type="button" class="btn danger" data-action="erase">Erase library</button><button type="button" class="btn ghost" data-action="export">Export</button><span class="spacer"></span>
@@ -116,6 +117,7 @@
   <script src="js/map.js"></script>
   <script src="js/panels.js"></script>
   <script src="js/reels.js"></script>
+  <script src="js/sync.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>
