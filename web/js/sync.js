@@ -203,5 +203,5 @@ const LoomSync = (() => {
     await engine.start();
   }
 
-  return { engine, start, fileFor, synced: (id) => !!files[id], status: () => engine.status(), open: () => S.openPanel({ app: 'loom', tint: '#E07A52' }) };
+  return { engine, start, fileFor, synced: (id) => !!files[id], status: () => engine.status(), open: () => S.openPanel({ app: 'loom', tint: '#A48CF7' }) };
 })();

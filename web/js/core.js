@@ -17,7 +17,7 @@ const branchColor = (key) => {
 };
 
 const KINDS = {
-  note:  { label: 'Note',  plural: 'Notes',  color: '#b5502c', glyph: '✎' },
+  note:  { label: 'Note',  plural: 'Notes',  color: '#6d4ad6', glyph: '✎' },
   link:  { label: 'Link',  plural: 'Links',  color: '#4f78ad', glyph: '↗' },
   image: { label: 'Image', plural: 'Images', color: '#a64d6c', glyph: '▣' },
   video: { label: 'Video', plural: 'Videos', color: '#7a5cae', glyph: '▶' },
