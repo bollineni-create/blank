@@ -51,7 +51,7 @@ const Web = (() => {
     for (const [t, n] of tags) add({ key: 't:' + t, type: 'concept', label: t, count: n, r: 14 + Math.sqrt(n) * 4, color: branchColor(t) });
     const spaceCount = new Map();
     for (const i of items) if (i.space) spaceCount.set(i.space, (spaceCount.get(i.space) || 0) + 1);
-    for (const s of Lib.state.spaces) if (spaceCount.get(s.id)) add({ key: 's:' + s.id, type: 'space', label: s.name, emoji: s.emoji, count: spaceCount.get(s.id), r: 16 + Math.sqrt(spaceCount.get(s.id)) * 4, color: css('--accent') || '#E07A52' });
+    for (const s of Lib.state.spaces) if (spaceCount.get(s.id)) add({ key: 's:' + s.id, type: 'space', label: s.name, emoji: s.emoji, count: spaceCount.get(s.id), r: 16 + Math.sqrt(spaceCount.get(s.id)) * 4, color: css('--accent') || '#A48CF7' });
     for (const i of items) {
       const n = add({ key: i.id, type: 'item', item: i, r: 6 });
       const first = i.tags.find((t) => tagSet.has(t));
