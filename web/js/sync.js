@@ -14,30 +14,53 @@ const LoomSync = (() => {
   const TEXT_MAX = 20000; // the page or file text Claude reads; enough to search and ask
   const THUMB_MAX = 80000; // video posters travel with the item; image thumbnails are made from the file
   const MAX_CHAT_MESSAGES = 80;
+  // The whole library travels as one encrypted save (the server takes up to 4 MB of it). Page text
+  // is most of that, so a big library sends less of each page's text, longest first, rather than
+  // failing to sync at all. Each device keeps its own full text.
+  const DOC_BUDGET = 2_600_000;
   let files = {}; // item id -> { k, b, n, size, type }: this library's synced files
   const fetching = new Set();
 
   // ---- What syncs --------------------------------------------------------------------------
 
-  function syncedItem(i) {
+  function syncedItem(i, cap) {
     const { thumb, ...rest } = i;
     const out = { ...rest, ai: i.ai === 'processing' ? 'pending' : i.ai };
-    if (typeof out.text === 'string' && out.text.length > TEXT_MAX) out.text = out.text.slice(0, TEXT_MAX);
+    if (typeof out.text === 'string' && out.text.length > cap) out.text = out.text.slice(0, cap);
     // Only a real poster travels; a video the browser couldn't draw a frame from has thumb '' and
     // sends none (an empty one used to make every other device reject the whole item).
     if (i.kind === 'video' && typeof thumb === 'string' && thumb && thumb.length < THUMB_MAX) out.thumb = thumb;
     return out;
   }
+  // The most text per item that keeps the save within DOC_BUDGET (in steps of 500, so small
+  // changes to the library don't re-send every item).
+  function textCap(rest, lengths) {
+    const room = DOC_BUDGET - rest;
+    const total = (cap) => lengths.reduce((n, l) => n + Math.min(l, cap), 0);
+    if (total(TEXT_MAX) <= room) return TEXT_MAX;
+    if (room <= 0) return 0;
+    let lo = 0, hi = TEXT_MAX;
+    while (hi - lo > 500) { const mid = Math.floor((lo + hi) / 1000) * 500; if (total(mid) <= room) lo = mid; else hi = mid; }
+    return lo;
+  }
   function read() {
     const items = {}, spaces = {}, chats = {}, fileMap = {};
     for (const i of Lib.state.items) {
-      items[i.id] = syncedItem(i);
+      items[i.id] = syncedItem(i, 0);
       if (files[i.id]) fileMap[i.id] = files[i.id];
     }
     for (const s of Lib.state.spaces) spaces[s.id] = { ...s };
     for (const c of Lib.state.chats) if (c.messages?.length) chats[c.id] = { ...c, messages: c.messages.slice(-MAX_CHAT_MESSAGES) };
     const { auto, theme } = Lib.state.settings;
-    return { items, spaces, chats, settings: { auto: !!auto, theme: theme || '' }, files: fileMap };
+    const out = { items, spaces, chats, settings: { auto: !!auto, theme: theme || '' }, files: fileMap };
+    const texts = Lib.state.items.filter((i) => typeof i.text === 'string' && i.text);
+    if (texts.length) {
+      // Each stamped entry adds ~40 characters of bookkeeping to the save.
+      const rest = JSON.stringify(out).length + 40 * (Lib.state.items.length + Lib.state.chats.length);
+      const cap = textCap(rest, texts.map((i) => i.text.length));
+      for (const i of texts) items[i.id] = syncedItem(i, cap);
+    }
+    return out;
   }
 
   // Whatever arrives was written by whoever holds the code, so it is checked against the shapes
@@ -81,7 +104,9 @@ const LoomSync = (() => {
     for (const [id, item] of Object.entries(v.items)) {
       const mine = local.get(id);
       // An image's thumbnail is made here from its file; keep the one this browser has.
-      const out = mine?.thumb && !item.thumb ? { ...item, thumb: mine.thumb } : item;
+      let out = mine?.thumb && !item.thumb ? { ...item, thumb: mine.thumb } : item;
+      // Text arrives shortened for a big library: keep the full text this browser already has.
+      if (typeof mine?.text === 'string' && typeof item.text === 'string' && mine.text.length > item.text.length && mine.text.startsWith(item.text)) out = { ...out, text: mine.text };
       await DB.put('items', out);
       local.delete(id);
     }
